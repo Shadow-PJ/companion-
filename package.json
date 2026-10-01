@@ -1,0 +1,25 @@
+{
+  "name": "glowby",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "icons": "node scripts/gen-icons.mjs",
+    "hook": "cargo build -p glowby-hook",
+    "vite:dev": "vite",
+    "build:web": "tsc --noEmit && vite build",
+    "dev": "npm run icons && npm run hook && tauri dev",
+    "release": "npm run icons && cargo build --release -p glowby-hook && tauri build --no-bundle",
+    "typecheck": "tsc --noEmit",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.1",
+    "@tauri-apps/plugin-dialog": "^2.8.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2"
+  }
+}

@@ -1,0 +1,33 @@
+[package]
+name = "glowby"
+version.workspace = true
+edition.workspace = true
+description = "Glowby, a desktop companion for Claude Code"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+# preserve_order keeps your settings.json keys in their original order when we edit it.
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["net", "io-util", "sync", "time", "process", "macros", "rt"] }
+similar = "2"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+glowby-protocol = { path = "../crates/glowby-protocol" }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_Security",
+  "Win32_Security_Authorization",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Threading",
+  "Win32_UI_Accessibility",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }

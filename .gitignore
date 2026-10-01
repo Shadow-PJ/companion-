@@ -1,0 +1,14 @@
+# Build output
+/target/
+/dist/
+/node_modules/
+/src-tauri/gen/
+# Generated from code by scripts/gen-icons.mjs (npm run icons), never hand-made images
+/src-tauri/icons/
+
+# Logs and editor junk
+*.log
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
