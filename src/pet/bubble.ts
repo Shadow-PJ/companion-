@@ -5,6 +5,7 @@
 //   4. the live status ("my-app · Editing main.rs")
 
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 import { button, compact, el } from "../shared/dom";
 import type { PermView, PetView } from "../shared/types";
 
@@ -29,7 +30,8 @@ export class Bubble {
   private countdownTimer = 0;
 
   // chat parts (built once so typing is never interrupted by updates)
-  private chatProject = el("span", { class: "chip" });
+  private picking = false;
+  private chatProject = button("", "chip", () => void this.pickFolder());
   private chatNewBtn = button("New chat", "ghost", () => void invoke("chat_new"), "Forget this conversation");
   private chatReply = el("div", { class: "reply" });
   private chatActivity = el("div", { class: "activity" });
@@ -71,8 +73,9 @@ export class Bubble {
   }
 
   openChat() {
-    void invoke("chat_open");
-    window.setTimeout(() => this.chatInput.focus(), 80);
+    // Rust activates the window first; then the text box can take the keyboard.
+    void invoke("chat_open").finally(() => this.chatInput.focus());
+    window.setTimeout(() => this.chatInput.focus(), 150);
   }
 
   closeChat() {
@@ -81,6 +84,7 @@ export class Bubble {
 
   /** The window lost focus: close the chat if nothing is in progress. */
   onBlur() {
+    if (this.picking) return; // the folder picker took focus; keep the chat open
     const v = this.view;
     if (v?.chatOpen && !v.chat.busy && this.chatInput.value.trim() === "") this.closeChat();
   }
@@ -157,7 +161,8 @@ export class Bubble {
 
   private renderChat(v: PetView) {
     const c = v.chat;
-    this.chatProject.textContent = c.project || "no folder";
+    this.chatProject.textContent = c.hasProject ? `${c.project} ▾` : "Choose folder ▾";
+    this.chatProject.title = c.projectPath ? `${c.projectPath}\nClick to choose another folder` : "Choose the project folder";
     this.chatNewBtn.hidden = !c.hasConversation || c.busy;
     this.chatReply.textContent = c.reply || (c.busy ? "…" : "");
     this.chatReply.hidden = !c.reply && !c.busy;
@@ -168,17 +173,35 @@ export class Bubble {
 
     let notice: (Node | string)[] = [];
     if (!c.enabled) notice = ["Chat is turned off in Settings."];
-    else if (!c.hasProject)
-      notice = ["Pick a project folder first. ", button("Open settings", "ghost", () => void invoke("open_settings"))];
+    else if (!c.hasProject) notice = ["Which project should Claude work in? Click “Choose folder”."];
+    else if (c.folderSource === "recent" && !c.reply && !c.busy)
+      notice = [`Using your latest Claude Code project. Click the folder to change it.`];
     this.chatNotice.replaceChildren(...notice);
     this.chatNotice.hidden = notice.length === 0;
-    this.chatForm.hidden = !c.enabled || !c.hasProject;
+    this.chatForm.hidden = !c.enabled;
     this.chatReply.scrollTop = this.chatReply.scrollHeight;
+  }
+
+  /** Native folder picker, right from the bubble. */
+  private async pickFolder(): Promise<boolean> {
+    this.picking = true;
+    try {
+      const dir = await open({ directory: true, multiple: false, title: "Choose the project folder for chat" });
+      if (typeof dir !== "string") return false;
+      await invoke("set_chat_folder", { path: dir });
+      return true;
+    } catch {
+      return false;
+    } finally {
+      this.picking = false;
+      this.chatInput.focus();
+    }
   }
 
   private async send() {
     const text = this.chatInput.value.trim();
     if (!text || this.view?.chat.busy) return;
+    if (!this.view?.chat.hasProject && !(await this.pickFolder())) return;
     this.chatInput.value = "";
     try {
       await invoke("chat_send", { text });

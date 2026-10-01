@@ -96,17 +96,17 @@ pub fn set_visible(visible: bool) {
     }
 }
 
-/// `Some(colour)` shows a thin status line, `None` makes the strip invisible again.
-pub fn set_status(color: Option<u32>) {
+/// `Some((colour, opacity))` shows a thin status line, `None` makes the strip invisible.
+pub fn set_status(color: Option<(u32, u8)>) {
     let hwnd = zone();
     if hwnd.is_null() {
         return;
     }
     unsafe {
         match color {
-            Some(c) => {
+            Some((c, alpha)) => {
                 COLOR.store(c, Ordering::Relaxed);
-                SetLayeredWindowAttributes(hwnd, 0, 235, LWA_ALPHA);
+                SetLayeredWindowAttributes(hwnd, 0, alpha.max(1), LWA_ALPHA);
             }
             None => {
                 SetLayeredWindowAttributes(hwnd, 0, 1, LWA_ALPHA);

@@ -34,6 +34,9 @@ export interface ChatView {
   activity: string;
   error: string | null;
   project: string;
+  projectPath: string;
+  /** chosen = from Settings, recent = your latest Claude Code session's folder */
+  folderSource: "chosen" | "recent" | "none";
   hasProject: boolean;
   hasConversation: boolean;
 }

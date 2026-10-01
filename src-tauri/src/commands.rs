@@ -63,6 +63,20 @@ pub fn chat_new(app: AppHandle) {
     chat::new_conversation(&app);
 }
 
+/// Folder picked from the chat bubble's folder chip.
+#[tauri::command]
+pub fn set_chat_folder(app: AppHandle, path: String) -> Result<(), String> {
+    if !std::path::Path::new(&path).is_dir() {
+        return Err("That folder doesn't exist.".into());
+    }
+    let state = app.state::<AppState>();
+    let mut settings = state.settings();
+    settings.chat.project_dir = path;
+    state.save_settings(settings);
+    state::publish(&app);
+    Ok(())
+}
+
 #[tauri::command]
 pub fn drag_start(app: AppHandle) {
     pet_window::start_drag(&app);

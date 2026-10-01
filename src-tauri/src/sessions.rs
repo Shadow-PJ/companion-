@@ -46,6 +46,7 @@ pub enum Phase {
 
 pub struct Session {
     pub project: String,
+    pub cwd: String,
     pub phase: Phase,
     pub activity: String,
     pub last_event: Instant,
@@ -100,9 +101,11 @@ impl Tracker {
             return None;
         }
 
-        let project = project_name(str_field(p, "cwd").unwrap_or(""));
+        let cwd = str_field(p, "cwd").unwrap_or("").to_string();
+        let project = project_name(&cwd);
         let session = self.sessions.entry(id).or_insert_with(|| Session {
             project: project.clone(),
+            cwd: cwd.clone(),
             phase: Phase::Idle,
             activity: "Ready".into(),
             last_event: now,
@@ -111,6 +114,7 @@ impl Tracker {
         });
         if !project.is_empty() {
             session.project = project;
+            session.cwd = cwd;
         }
         session.last_event = now;
         session.from_pet_chat |= from_pet_chat;
@@ -219,6 +223,15 @@ impl Tracker {
             from_pet_chat: latest.from_pet_chat,
             others: live.len().saturating_sub(1),
         })
+    }
+
+    /// Folder of your most recently active Claude Code session (not Glowby's own chat).
+    pub fn latest_project_dir(&self) -> Option<String> {
+        self.sessions
+            .values()
+            .filter(|s| !s.from_pet_chat && !s.cwd.is_empty())
+            .max_by_key(|s| s.last_event)
+            .map(|s| s.cwd.clone())
     }
 
     pub fn forget_stale(&mut self, now: Instant) {

@@ -11,7 +11,10 @@ use std::ptr::null_mut;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+    GetAsyncKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP,
+    MAPVK_VK_TO_VSC, MapVirtualKeyW, SendInput, VK_LBUTTON, VK_LMENU, VK_MENU, VK_RBUTTON,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GWL_EXSTYLE, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindowLongPtrW, GetWindowRect, HWND_TOPMOST,
     IsWindow, SM_SWAPBUTTON, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
@@ -366,16 +369,45 @@ fn save_dragged_position(app: &AppHandle, left: i32, width: i32) {
 
 /// Typing in the chat box needs keyboard focus, so ONLY then Glowby becomes a
 /// normal focusable window. We remember who had focus to give it back later.
+///
+/// Why this is tricky: Windows only lets a program take the foreground if it
+/// received the user's last input. Your click landed in WebView2's helper
+/// process, not in glowby.exe, so a plain SetForegroundWindow is refused.
+/// (And Tauri's own set_focus() does nothing here: it thinks the window is
+/// hidden, because Glowby shows it with a direct Win32 call.)
 pub fn focus_for_typing(app: &AppHandle) {
     let Some(h) = hwnd(app) else { return };
     let previous = unsafe { GetForegroundWindow() };
     if previous != h {
         lock(&app.state::<AppState>().ui).prev_foreground = previous as isize;
     }
+    // Without NOACTIVATE, any click inside the chat also activates the window normally.
     set_ex_style(h, 0, WS_EX_NOACTIVATE | WS_EX_TRANSPARENT);
-    unsafe { SetForegroundWindow(h) };
+    force_foreground(h);
+    // Put keyboard focus inside the web page (WebView2 "MoveFocus").
     if let Some(window) = app.get_webview_window(LABEL) {
-        let _ = window.set_focus();
+        let webview: &tauri::Webview = window.as_ref();
+        let _ = webview.set_focus();
+    }
+}
+
+/// SetForegroundWindow, plus the well-known fallback Tauri itself uses: a
+/// synthetic Alt key tap counts as fresh input, so Windows allows the switch.
+fn force_foreground(h: HWND) {
+    unsafe {
+        if GetForegroundWindow() == h || SetForegroundWindow(h) != 0 {
+            return;
+        }
+        let scan = MapVirtualKeyW(VK_MENU as u32, MAPVK_VK_TO_VSC) as u16;
+        let key = |flags| INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT { wVk: VK_LMENU, wScan: scan, dwFlags: flags, time: 0, dwExtraInfo: 0 },
+            },
+        };
+        let inputs = [key(KEYEVENTF_EXTENDEDKEY), key(KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP)];
+        SendInput(inputs.len() as u32, inputs.as_ptr(), std::mem::size_of::<INPUT>() as i32);
+        SetForegroundWindow(h);
     }
 }
 

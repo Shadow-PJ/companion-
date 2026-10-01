@@ -140,3 +140,21 @@ needed), then checked on screen that transparency still worked before keeping th
 * **Tauri rewrites window styles.** Its window helpers recompute *all* extended styles
   from their own flags, which would drop `WS_EX_NOACTIVATE`. We read Tauri's (`tao`'s)
   source to confirm, then avoided those helpers after creating the window.
+* **You couldn't type in the chat** (found by you while testing). Two causes stacked up:
+  1. Tauri's `set_focus()` first checks its *own* "is the window visible?" flag. Glowby
+     shows the window with a direct Win32 call, so Tauri thought it was hidden and did
+     nothing.
+  2. Windows' *foreground lock*: a program may only bring itself to the front if it
+     received the user's last input. Your click went to WebView2's helper process
+     (`msedgewebview2.exe`), not to `glowby.exe`, so `SetForegroundWindow` was refused.
+
+  Fix: while the chat is open, Glowby drops `WS_EX_NOACTIVATE` (so any click inside it
+  activates the window the normal way), forces the foreground with the same Alt-key
+  fallback Tauri uses internally, and focuses the web page directly. Lesson: when you
+  bypass a framework for one thing, check which of its other features relied on the
+  state you bypassed.
+* **The status line was invisible when idle**, so you had no idea where to hover. It's
+  now always faintly visible and bright only when something happens. A UI hint that only
+  appears when it's least needed isn't a hint.
+* **The chat box was hidden until a folder was set.** Now it uses your latest Claude
+  Code project by default, and the folder chip in the bubble opens a folder picker.

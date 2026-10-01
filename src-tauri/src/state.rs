@@ -84,7 +84,7 @@ pub struct Ui {
     pub pipe_error: Option<String>,
     /// First run during a game: open Settings when the game closes, not on top of it.
     pub settings_after_game: bool,
-    last_hot_color: Option<Option<u32>>,
+    last_hot_color: Option<Option<(u32, u8)>>,
     last_tooltip: String,
 }
 
@@ -268,15 +268,17 @@ pub fn spawn_mood_timer(app: AppHandle) {
     });
 }
 
-/// Colour of the thin top-edge line while Glowby is hidden (COLORREF = 0x00BBGGRR).
-fn status_color(mood: Mood) -> Option<u32> {
+/// Colour + opacity of the thin top-edge line while Glowby is hidden
+/// (COLORREF = 0x00BBGGRR). Always faintly visible so you know where to hover;
+/// bright while Claude works or needs you.
+fn status_color(mood: Mood) -> Option<(u32, u8)> {
     let rgb = |r: u32, g: u32, b: u32| (b << 16) | (g << 8) | r;
-    match mood {
-        Mood::Working => Some(rgb(127, 155, 255)),
-        Mood::Alert => Some(rgb(239, 159, 39)),
-        Mood::Sick => Some(rgb(151, 196, 89)),
-        _ => None,
-    }
+    Some(match mood {
+        Mood::Working => (rgb(127, 155, 255), 240),
+        Mood::Alert => (rgb(239, 159, 39), 255),
+        Mood::Sick => (rgb(151, 196, 89), 240),
+        _ => (rgb(150, 170, 255), 110),
+    })
 }
 
 fn tooltip_text(view: &PetView) -> String {

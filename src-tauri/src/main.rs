@@ -79,6 +79,7 @@ fn main() {
             commands::chat_send,
             commands::chat_cancel,
             commands::chat_new,
+            commands::set_chat_folder,
             commands::drag_start,
             commands::dismiss_toast,
             commands::pet_hide,

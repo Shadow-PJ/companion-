@@ -43,12 +43,28 @@ pub struct ChatView {
     pub activity: String,
     pub error: Option<String>,
     pub project: String,
+    pub project_path: String,
+    /// "chosen" (from Settings), "recent" (your last Claude Code session) or "none".
+    pub folder_source: &'static str,
     pub has_project: bool,
     pub has_conversation: bool,
 }
 
+/// The folder the chat works in: the one you chose, otherwise the folder of
+/// your most recent Claude Code session.
+pub fn effective_dir(state: &AppState, settings: &Settings) -> (String, &'static str) {
+    let chosen = settings.chat.project_dir.trim();
+    if !chosen.is_empty() && Path::new(chosen).is_dir() {
+        return (chosen.to_string(), "chosen");
+    }
+    match lock(&state.tracker).latest_project_dir() {
+        Some(dir) if Path::new(&dir).is_dir() => (dir, "recent"),
+        _ => (String::new(), "none"),
+    }
+}
+
 pub fn view(state: &AppState, settings: &Settings) -> ChatView {
-    let dir = settings.chat.project_dir.clone();
+    let (dir, source) = effective_dir(state, settings);
     let has_conversation = lock(&state.chat_sessions).contains_key(&dir);
     let chat = lock(&state.chat);
     ChatView {
@@ -58,7 +74,9 @@ pub fn view(state: &AppState, settings: &Settings) -> ChatView {
         activity: chat.activity.clone(),
         error: chat.error.clone(),
         project: crate::sessions::project_name(&dir),
-        has_project: !dir.is_empty() && Path::new(&dir).is_dir(),
+        has_project: !dir.is_empty(),
+        project_path: dir,
+        folder_source: source,
         has_conversation,
     }
 }
@@ -136,9 +154,9 @@ pub async fn send(app: AppHandle, message: String) -> Result<(), String> {
     if !settings.chat.enabled {
         return Err("Chat is turned off in Settings.".into());
     }
-    let dir = settings.chat.project_dir.clone();
-    if dir.is_empty() || !Path::new(&dir).is_dir() {
-        return Err("Choose a project folder in Settings first.".into());
+    let (dir, _) = effective_dir(&state, &settings);
+    if dir.is_empty() {
+        return Err("Choose a project folder first (click the folder chip).".into());
     }
     let message = message.trim().to_string();
     if message.is_empty() {
@@ -331,7 +349,7 @@ pub fn cancel(app: &AppHandle) {
 /// "New chat": forget the conversation for the current project folder.
 pub fn new_conversation(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let dir = state.settings().chat.project_dir;
+    let (dir, _) = effective_dir(&state, &state.settings());
     {
         let mut sessions = lock(&state.chat_sessions);
         sessions.remove(&dir);
