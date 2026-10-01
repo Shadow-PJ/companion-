@@ -83,6 +83,8 @@ pub enum Kind {
     Hat,
     Color,
     Emote,
+    /// Power-up effects drawn around Glowby or your imported character.
+    Aura,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -121,6 +123,14 @@ pub const COSMETICS: &[Cosmetic] = &[
     c("lilac", Kind::Color, "Lilac", Needs::Level(10)),
     c("rose", Kind::Color, "Rose", Needs::Streak(7)),
     c("aqua", Kind::Color, "Aqua", Needs::Level(16)),
+    c("sparkle", Kind::Aura, "Sparkle ring", Needs::Level(2)),
+    c("flame", Kind::Aura, "Flame aura", Needs::Level(4)),
+    c("sakura", Kind::Aura, "Cherry blossoms", Needs::Streak(5)),
+    c("lightning", Kind::Aura, "Golden power-up", Needs::Level(7)),
+    c("cursed", Kind::Aura, "Cursed energy", Needs::Level(11)),
+    c("infinity", Kind::Aura, "Infinity rings", Needs::Level(14)),
+    c("sun", Kind::Aura, "Blazing sun", Needs::Level(19)),
+    c("rainbow", Kind::Aura, "Rainbow aurora", Needs::Level(24)),
 ];
 
 fn is_unlocked(cosmetic: &Cosmetic, level: u32, best_streak: u32) -> bool {
@@ -219,6 +229,9 @@ pub struct Look {
     pub color: String,
     /// Ignored for days: paler and slower.
     pub weak: bool,
+    pub aura: String,
+    /// An imported character instead of the jellyfish ("" = jellyfish).
+    pub character: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -272,6 +285,9 @@ pub fn look(p: &Progress, settings: &Settings, now: DateTime<Local>) -> Look {
         hat: if ok(&settings.progression.hat, Kind::Hat) { settings.progression.hat.clone() } else { String::new() },
         color: if ok(&settings.progression.color, Kind::Color) { settings.progression.color.clone() } else { "periwinkle".into() },
         weak: settings.progression.neglect && p.energy(now) <= 40,
+        aura: if ok(&settings.progression.aura, Kind::Aura) { settings.progression.aura.clone() } else { String::new() },
+        // Checked against your imported characters by the caller.
+        character: settings.pet.character.clone(),
     }
 }
 
@@ -472,6 +488,18 @@ mod tests {
         let a = p.add_xp((threshold(6) - p.xp) as u32);
         assert_eq!(a.new_level, Some(6));
         assert_eq!(a.evolved_into, Some("Lantern Glowby"));
+    }
+
+    #[test]
+    fn auras_unlock_with_levels_and_locked_ones_are_not_worn() {
+        let mut settings = Settings::default();
+        settings.progression.aura = "flame".into();
+        let now = Local::now();
+        let mut p = Progress::default();
+        assert_eq!(look(&p, &settings, now).aura, "", "level 1 can't wear the flame aura yet");
+        let a = p.add_xp(threshold(4) as u32);
+        assert!(a.unlocked.contains(&"Flame aura"));
+        assert_eq!(look(&p, &settings, now).aura, "flame");
     }
 
     #[test]

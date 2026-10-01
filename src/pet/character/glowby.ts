@@ -17,6 +17,16 @@ export interface LookInput {
   weak: boolean;
 }
 
+export interface Motion {
+  x: number;
+  y: number;
+  rotation: number;
+  squash: number;
+  /** -1..1, the swim pulse right now. */
+  pulse: number;
+  pulseAmp: number;
+}
+
 export interface Frame {
   /** Seconds since start (drives all motion). */
   t: number;
@@ -34,9 +44,9 @@ export interface Frame {
   emote: { id: string; p: number } | null;
 }
 
-const BELL_HALF_WIDTH = 34;
+export const BELL_HALF_WIDTH = 34;
 const DOME = 40;
-const STAGE_SCALE = [0.92, 1.0, 1.06, 1.1];
+export const STAGE_SCALE = [0.92, 1.0, 1.06, 1.1];
 
 function bellPath(ctx: CanvasRenderingContext2D, x: number, y: number, halfWidth: number, grow: number) {
   const w = halfWidth + grow;
@@ -54,11 +64,11 @@ function bellPath(ctx: CanvasRenderingContext2D, x: number, y: number, halfWidth
 
 const easeInOut = (p: number) => (p < 0.5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2);
 
-export function drawGlowby(ctx: CanvasRenderingContext2D, f: Frame) {
+/** Body language shared by every look (jellyfish or imported character):
+ *  bobbing, mood wiggles and emote moves. */
+export function bodyMotion(f: Frame): Motion {
   const s = f.style;
-  const stage = Math.max(0, Math.min(3, f.appearance.stage));
-  const weak = f.appearance.weak;
-  const pulseAmp = s.pulseAmp * (weak ? 0.5 : 1);
+  const pulseAmp = s.pulseAmp * (f.appearance.weak ? 0.5 : 1);
   const pulse = Math.sin(f.t * Math.PI * 2 * s.pulseHz);
   let x = f.x;
   let y = f.y + pulse * 2 * pulseAmp;
@@ -94,6 +104,15 @@ export function drawGlowby(ctx: CanvasRenderingContext2D, f: Frame) {
         break;
     }
   }
+  return { x, y, rotation, squash, pulse, pulseAmp };
+}
+
+export function drawGlowby(ctx: CanvasRenderingContext2D, f: Frame) {
+  const s = f.style;
+  const stage = Math.max(0, Math.min(3, f.appearance.stage));
+  const weak = f.appearance.weak;
+  const { x, y, rotation, squash, pulse, pulseAmp } = bodyMotion(f);
+  const e = f.emote;
 
   const scale = STAGE_SCALE[stage];
   ctx.save();
@@ -226,7 +245,7 @@ export function drawGlowby(ctx: CanvasRenderingContext2D, f: Frame) {
 }
 
 /** Starlit and Aurora: a few tiny stars drifting around Glowby. */
-function drawSparkles(ctx: CanvasRenderingContext2D, f: Frame, x: number, y: number, stage: number) {
+export function drawSparkles(ctx: CanvasRenderingContext2D, f: Frame, x: number, y: number, stage: number) {
   const count = stage >= 3 ? 6 : 3;
   for (let i = 0; i < count; i++) {
     const a = f.t * 0.4 + (i * Math.PI * 2) / count;
@@ -258,7 +277,7 @@ function heart(ctx: CanvasRenderingContext2D, x: number, y: number, size: number
   ctx.fill();
 }
 
-function drawEmoteExtras(ctx: CanvasRenderingContext2D, e: { id: string; p: number }, x: number, y: number) {
+export function drawEmoteExtras(ctx: CanvasRenderingContext2D, e: { id: string; p: number }, x: number, y: number) {
   const fade = 1 - e.p;
   ctx.save();
   switch (e.id) {
@@ -313,8 +332,9 @@ function drawEmoteExtras(ctx: CanvasRenderingContext2D, e: { id: string; p: numb
   ctx.restore();
 }
 
-function drawMoodExtras(ctx: CanvasRenderingContext2D, f: Frame, x: number, y: number) {
-  const edge = x + BELL_HALF_WIDTH;
+/** Mood decorations ("!", "zZ", sweat drop, bubbles, sparkles). `halfWidth` = body half-width. */
+export function drawMoodExtras(ctx: CanvasRenderingContext2D, f: Frame, x: number, y: number, halfWidth = BELL_HALF_WIDTH) {
+  const edge = x + halfWidth;
   switch (f.mood) {
     case "working": {
       // little bubbles rising: busy swimming
@@ -323,7 +343,7 @@ function drawMoodExtras(ctx: CanvasRenderingContext2D, f: Frame, x: number, y: n
       for (let j = 0; j < 3; j++) {
         const phase = (f.t * 0.7 + j / 3) % 1;
         const side = j % 2 ? 1 : -1;
-        const bx = x + side * (BELL_HALF_WIDTH + 9 + Math.sin(f.t * 3 + j) * 2.5);
+        const bx = x + side * (halfWidth + 9 + Math.sin(f.t * 3 + j) * 2.5);
         const by = y + 26 - phase * 62;
         ctx.globalAlpha = 1 - phase;
         ctx.beginPath();

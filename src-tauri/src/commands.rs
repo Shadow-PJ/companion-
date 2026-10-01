@@ -39,6 +39,7 @@ pub fn chat_open(app: AppHandle) {
     crate::applog::debug("chat: open");
     crate::progress::activity(&app, false);
     crate::wellbeing::activity(&app);
+    chat::set_target(&app, None); // clicking Glowby = the normal chat
     lock(&app.state::<AppState>().ui).chat_open = true;
     pet_window::focus_for_typing(&app);
     state::publish(&app);
@@ -62,7 +63,7 @@ pub fn js_log(message: String) {
 #[tauri::command]
 pub async fn chat_send(app: AppHandle, text: String) -> Result<(), String> {
     let title = crate::sessions::shorten(text.trim(), 90);
-    chat::send(app, chat::ChatRequest { message: text, title, read_only: false, dir: None }).await
+    chat::send(app, chat::ChatRequest { message: text, title, read_only: false, dir: None, use_target: true }).await
 }
 
 #[tauri::command]
@@ -81,6 +82,68 @@ pub fn run_action(app: AppHandle, id: String) -> Result<(), String> {
 #[tauri::command]
 pub fn get_progress(app: AppHandle) -> crate::progress::ProgressInfo {
     crate::progress::info(&app)
+}
+
+// ---------- Phase 5: squad mode and imported characters ----------
+
+/// Click a squad pet → "Chat with Pip": the chat box now talks to a copy of that session.
+#[tauri::command]
+pub fn squad_chat_open(app: AppHandle, id: String) -> Result<(), String> {
+    let target = crate::squad::chat_target(&app, &id).ok_or("I can't find that session's folder anymore.")?;
+    crate::wellbeing::activity(&app);
+    chat::set_target(&app, Some(target));
+    lock(&app.state::<AppState>().ui).chat_open = true;
+    pet_window::show(&app); // (no-op if already out; never during a game)
+    pet_window::focus_for_typing(&app);
+    state::publish(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn squad_set_look(app: AppHandle, id: String, character: String) -> Result<(), String> {
+    crate::squad::set_look(&app, &id, &character)
+}
+
+#[tauri::command]
+pub fn characters_list(app: AppHandle) -> Vec<crate::characters::CharacterInfo> {
+    crate::characters::list(&app)
+}
+
+/// The picture you picked, as raw bytes, so Settings can crop it.
+/// (Async: big files are read off the UI thread.)
+#[tauri::command]
+pub async fn character_read_source(path: String) -> Result<tauri::ipc::Response, String> {
+    let bytes = tauri::async_runtime::spawn_blocking(move || crate::characters::read_source(&path)).await.map_err(|e| e.to_string())??;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// Saves the cropped icon. The PNG arrives as the raw request body (no JSON
+/// number arrays or base64); the name comes in the `x-name` header.
+#[tauri::command]
+pub async fn character_add(app: AppHandle, request: tauri::ipc::Request<'_>) -> Result<crate::characters::CharacterInfo, String> {
+    let tauri::ipc::InvokeBody::Raw(png) = request.body() else {
+        return Err("Expected the picture's bytes.".into());
+    };
+    let name = request.headers().get("x-name").and_then(|v| v.to_str().ok()).map(crate::characters::percent_decode).unwrap_or_default();
+    let info = crate::characters::add(&app, &name, png)?;
+    state::publish(&app);
+    Ok(info)
+}
+
+#[tauri::command]
+pub fn character_rename(app: AppHandle, id: String, name: String) -> Result<(), String> {
+    crate::characters::rename(&app, &id, &name)
+}
+
+#[tauri::command]
+pub fn character_delete(app: AppHandle, id: String) -> Result<(), String> {
+    crate::characters::delete(&app, &id)
+}
+
+#[tauri::command]
+pub async fn character_image(app: AppHandle, id: String) -> Result<tauri::ipc::Response, String> {
+    let bytes = tauri::async_runtime::spawn_blocking(move || crate::characters::image(&app, &id)).await.map_err(|e| e.to_string())??;
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 // ---------- Phase 4: briefing, learn mode, quests, GitHub ----------
@@ -198,6 +261,7 @@ pub fn set_chat_folder(app: AppHandle, path: String) -> Result<(), String> {
     let mut settings = state.settings();
     settings.chat.project_dir = path;
     state.save_settings(settings);
+    chat::set_target(&app, None);
     state::publish(&app);
     Ok(())
 }

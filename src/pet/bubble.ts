@@ -2,6 +2,7 @@
 //   1. a permission question (Allow / Deny)
 //   2. "drop it on me" while you drag a file over Glowby
 //   3. the quick-actions menu (right-click)
+//   3b. a squad pet's card (you clicked one of the small pets)
 //   4. the chat box (when you clicked Glowby or dropped a file)
 //   5. an offer ("That looks like an error. Fix it?", failing tests)
 //   6. a short message (task done, needs you, …)
@@ -11,7 +12,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { diag } from "../shared/diag";
 import { button, compact, el } from "../shared/dom";
-import type { BriefingView, Offer, PermView, PetView, ProgressView, QuestView, QuizView } from "../shared/types";
+import type { BriefingView, Offer, PermView, PetView, ProgressView, QuestView, QuizView, SquadMember } from "../shared/types";
 
 const PHASE_LABEL: Record<string, string> = {
   idle: "Idle",
@@ -33,8 +34,15 @@ const FILE_SUGGESTIONS: [string, string][] = [
 export class Bubble {
   /** Set by main.ts: plays an emote. */
   onEmote: (id: string) => void = () => {};
+  /** Set by main.ts: the selected squad pet changed (it gets a spotlight). */
+  onSquadChange: () => void = () => {};
+  /** The squad pet whose card is open, if any. */
+  squadSelected: string | null = null;
   private view: PetView | null = null;
   private menuOpen = false;
+  private squadBox = el("div", { class: "squad-card" });
+  private squadKey = "";
+  private squadError = "";
   private permBox = el("div", { class: "perm" });
   private dropBox = el("div", { class: "note drop" });
   private menuBox = el("div", { class: "menu" });
@@ -66,6 +74,7 @@ export class Bubble {
   private chatError = el("div", { class: "error" });
   private chatNotice = el("div", { class: "notice" });
   private chatInput = el("textarea", { rows: 2, placeholder: "Ask Claude about your project…", maxlength: 8000 });
+  private chatHeading = el("strong", { text: "Ask Claude" });
   private chatForm = el("form", { class: "chat-form" });
   private filesKey = "";
 
@@ -78,15 +87,21 @@ export class Bubble {
       el("div", { class: "title", text: "Drop it on me!" }),
       el("div", { class: "muted small", text: "Then tell me what to do with it." }),
     );
-    root.append(this.permBox, this.dropBox, this.menuBox, this.chatBox, this.quizBox, this.briefBox, this.offerBox, this.noteBox);
+    root.append(this.permBox, this.dropBox, this.menuBox, this.squadBox, this.chatBox, this.quizBox, this.briefBox, this.offerBox, this.noteBox);
   }
 
   render(v: PetView) {
     this.view = v;
+    const squadPet = v.squad.find((m) => m.id === this.squadSelected) ?? null;
+    if (this.squadSelected && !squadPet) {
+      this.squadSelected = null; // that session ended
+      this.onSquadChange();
+    }
     const show = {
       perm: !!v.permission,
       drop: false,
       menu: false,
+      squad: false,
       chat: false,
       quiz: false,
       brief: false,
@@ -97,6 +112,7 @@ export class Bubble {
       // a question always wins
     } else if (v.dropHover) show.drop = true;
     else if (this.menuOpen) show.menu = true;
+    else if (squadPet) show.squad = true;
     else if (v.chatOpen) show.chat = true;
     else if (v.quiz) show.quiz = true;
     else if (v.briefing) show.brief = true;
@@ -106,6 +122,7 @@ export class Bubble {
     this.permBox.hidden = !show.perm;
     this.dropBox.hidden = !show.drop;
     this.menuBox.hidden = !show.menu;
+    this.squadBox.hidden = !show.squad;
     this.chatBox.hidden = !show.chat;
     this.quizBox.hidden = !show.quiz;
     this.briefBox.hidden = !show.brief;
@@ -115,6 +132,7 @@ export class Bubble {
     if (v.permission) this.renderPermission(v.permission);
     else this.stopCountdown();
     if (show.menu) this.renderMenu(v);
+    if (show.squad && squadPet) this.renderSquad(squadPet, v);
     if (show.chat) this.renderChat(v);
     if (show.quiz && v.quiz) this.renderQuiz(v.quiz);
     if (show.brief && v.briefing) this.renderBriefing(v.briefing, v.quests);
@@ -179,6 +197,10 @@ export class Bubble {
       this.closeMenu();
       return;
     }
+    if (this.squadSelected) {
+      this.closeSquad();
+      return;
+    }
     if (this.view?.chatOpen) this.closeChat();
     else this.openChat();
   }
@@ -205,10 +227,74 @@ export class Bubble {
     if (v?.chatOpen && idle) this.closeChat();
   }
 
-  /** Glowby slid away: forget the menu. */
+  /** Glowby slid away: forget the menu and the squad card. */
   onHidden() {
     this.menuOpen = false;
+    if (this.squadSelected) {
+      this.squadSelected = null;
+      this.onSquadChange();
+    }
   }
+
+  // ---------- squad pets ----------
+
+  toggleSquad(id: string) {
+    this.squadSelected = this.squadSelected === id ? null : id;
+    this.squadError = "";
+    this.menuOpen = false;
+    this.squadKey = "";
+    this.onSquadChange();
+    this.rerender();
+  }
+
+  private closeSquad() {
+    this.squadSelected = null;
+    this.onSquadChange();
+    this.rerender();
+  }
+
+  private renderSquad(m: SquadMember, v: PetView) {
+    const key = JSON.stringify([m, v.characters, v.chat.enabled, this.squadError]);
+    if (key === this.squadKey) return;
+    this.squadKey = key;
+    const pct = Math.round((m.xpIntoLevel / Math.max(1, m.xpForLevel)) * 100);
+    const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+    const lookChip = (id: string, label: string) =>
+      button(label, m.character === id ? "chip primary" : "chip", () => void invoke("squad_set_look", { id: m.id, character: id }));
+    const chat = button(`Chat with ${m.name}`, "primary", () => {
+      this.squadSelected = null;
+      this.onSquadChange();
+      void invoke("squad_chat_open", { id: m.id })
+        .then(() => this.chatInput.focus())
+        .catch((e) => {
+          // e.g. the session's folder is gone: show why on the card
+          this.squadSelected = m.id;
+          this.squadError = String(e);
+          this.onSquadChange();
+          this.rerender();
+        });
+    });
+    chat.disabled = !v.chat.enabled;
+    this.squadBox.replaceChildren(
+      ...compact(
+        el("div", { class: "eyebrow" }, el("span", { class: `dot ${m.phase}` }), `Squad · ${m.project || "Claude Code"}`),
+        el("div", { class: "title", text: `${m.name} · Level ${m.level}` }),
+        el("div", { class: "line", text: m.activity }),
+        el("div", {
+          class: "muted small",
+          text: `${m.minutes < 1 ? "Just started" : `Running ${m.minutes} min`} · ${plural(m.tasks, "task")} · ${plural(m.tools, "tool use")}`,
+        }),
+        el("div", { class: "xpbar", title: `${m.xpIntoLevel} / ${m.xpForLevel} XP to level ${m.level + 1}` }, el("span", { style: `width:${pct}%` })),
+        el("div", { class: "eyebrow", text: "Look" }),
+        el("div", { class: "looks" }, lookChip("", "Jellyfish"), ...v.characters.map((c) => lookChip(c.id, c.label))),
+        v.characters.length ? null : el("div", { class: "muted small", text: "Import characters in Settings to dress up your squad." }),
+        this.squadError ? el("div", { class: "error", text: this.squadError }) : null,
+        el("div", { class: "actions" }, chat, button("Close", "ghost", () => this.closeSquad())),
+        el("div", { class: "muted small", text: "Chat talks to a copy of this session, so the one in your terminal isn't disturbed." }),
+      ),
+    );
+  }
+
 
   private buildChat() {
     const close = button("×", "ghost icon", () => this.closeChat(), "Close (Esc)");
@@ -240,7 +326,7 @@ export class Bubble {
     const header = el(
       "div",
       { class: "chat-head" },
-      el("strong", { text: "Ask Claude" }),
+      this.chatHeading,
       this.chatProject,
       el("span", { class: "spacer" }),
       this.chatNewBtn,
@@ -263,8 +349,13 @@ export class Bubble {
 
   private renderChat(v: PetView) {
     const c = v.chat;
+    this.chatHeading.textContent = c.squadName ? `Ask ${c.squadName}` : "Ask Claude";
     this.chatProject.textContent = c.hasProject ? `${c.project} ▾` : "Choose folder ▾";
-    this.chatProject.title = c.projectPath ? `${c.projectPath}\nClick to choose another folder` : "Choose the project folder";
+    this.chatProject.title = c.squadName
+      ? `${c.projectPath}\nClick to choose a folder (back to Glowby's own chat)`
+      : c.projectPath
+        ? `${c.projectPath}\nClick to choose another folder`
+        : "Choose the project folder";
     this.chatNewBtn.hidden = !c.hasConversation || c.busy;
     this.chatTitle.textContent = c.title ? `You asked: ${c.title}` : "";
     this.chatTitle.hidden = !c.title;
@@ -301,6 +392,8 @@ export class Bubble {
     let notice: (Node | string)[] = [];
     if (!c.enabled) notice = ["Chat is turned off in Settings."];
     else if (!c.hasProject) notice = ["Which project should Claude work in? Click “Choose folder”."];
+    else if (c.folderSource === "squad" && !c.reply && !c.busy)
+      notice = [`${c.squadName} knows what its session did. You're talking to a copy, so the session in your terminal isn't disturbed.`];
     else if (c.folderSource === "recent" && !c.reply && !c.busy && !hasFiles)
       notice = [`Using your latest Claude Code project. Click the folder to change it.`];
     this.chatNotice.replaceChildren(...notice);

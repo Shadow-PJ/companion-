@@ -2,14 +2,20 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { PetRenderer } from "../pet/renderer";
+import { setCharacterImage } from "../pet/character/images";
+import { DEFAULT_APPEARANCE, PetRenderer } from "../pet/renderer";
 import { playSound } from "../pet/sound";
 import { button, compact, el } from "../shared/dom";
-import type { AppInfo, ChatMode, GithubStatus, HooksPreview, HooksStatus, Look, MonitorInfo, ProgressInfo, Settings } from "../shared/types";
+import type { AppInfo, CharacterInfo, ChatMode, GithubStatus, HooksPreview, HooksStatus, Look, MonitorInfo, ProgressInfo, Settings } from "../shared/types";
+import { crop, nameFromFile } from "./cropper";
 
 const app = document.getElementById("app")!;
 let settings: Settings;
 let saveTimer = 0;
+/** Your imported characters. */
+let characters: CharacterInfo[] = [];
+/** Redraws the progress card's previews (after the look changes elsewhere). */
+let refreshProgress = () => {};
 
 /// Debounced auto-save. The page's `settings` object stays the source of truth
 /// (the editors hold references into it), so we don't replace it with Rust's copy.
@@ -330,8 +336,20 @@ function helpersSection() {
 
 function canvasPreview(appearance: Look, mood: "happy" | "idle", faded = false) {
   const c = el("canvas", { class: faded ? "preview faded" : "preview" });
-  new PetRenderer(c).drawStill(mood, { stage: appearance.stage, hat: appearance.hat, color: appearance.color, weak: false });
+  new PetRenderer(c).drawStill(mood, { ...DEFAULT_APPEARANCE, ...appearance, weak: false });
   return c;
+}
+
+/** The look you picked, limited to what's unlocked and to characters that still exist. */
+function chosenLook(info: ProgressInfo): Look {
+  const owned = (id: string) => info.cosmetics.some((c) => c.id === id && c.unlocked);
+  return {
+    ...info.look,
+    hat: owned(settings.progression.hat) ? settings.progression.hat : "",
+    color: owned(settings.progression.color) ? settings.progression.color : "periwinkle",
+    aura: owned(settings.progression.aura) ? settings.progression.aura : "",
+    character: characters.some((c) => c.id === settings.pet.character) ? settings.pet.character : "",
+  };
 }
 
 async function progressSection() {
@@ -342,10 +360,7 @@ async function progressSection() {
 
   function render(info: ProgressInfo) {
     const v = info.view;
-    const look = { ...info.look, hat: settings.progression.hat, color: settings.progression.color };
-    const owned = (id: string) => info.cosmetics.some((c) => c.id === id && c.unlocked);
-    if (!owned(look.hat)) look.hat = "";
-    if (!owned(look.color)) look.color = "periwinkle";
+    const look = chosenLook(info);
     const pct = Math.round((v.xpIntoLevel / Math.max(1, v.xpForLevel)) * 100);
 
     const stages = info.stages.map(([level, name], i) =>
@@ -357,19 +372,22 @@ async function progressSection() {
       ),
     );
 
-    const picker = (kind: "hat" | "color") => {
+    const picker = (kind: "hat" | "color" | "aura") => {
       const items = info.cosmetics.filter((c) => c.kind === kind);
-      const current = kind === "hat" ? settings.progression.hat : settings.progression.color;
+      const p = settings.progression;
+      const current = kind === "hat" ? p.hat : kind === "color" ? p.color : p.aura;
       const choose = (id: string) => () => {
-        if (kind === "hat") settings.progression.hat = id;
-        else settings.progression.color = id;
+        if (kind === "hat") p.hat = id;
+        else if (kind === "color") p.color = id;
+        else p.aura = id;
         save();
         render(info);
       };
+      const none = kind === "hat" ? "No hat" : kind === "aura" ? "No aura" : null;
       return el(
         "div",
         { class: "picker" },
-        ...(kind === "hat" ? [button("No hat", current === "" ? "primary" : "", choose(""))] : []),
+        ...(none ? [button(none, current === "" ? "primary" : "", choose(""))] : []),
         ...items.map((c) => {
           const b = button(c.unlocked ? c.name : `${c.name} · ${c.requirement}`, c.id === current ? "primary" : "", choose(c.id));
           b.disabled = !c.unlocked;
@@ -413,6 +431,9 @@ async function progressSection() {
       picker("hat"),
       el("h3", { text: "Colour" }),
       picker("color"),
+      el("h3", { text: "Aura" }),
+      el("p", { class: "hint", text: "Power-up effects around Glowby or your character. New ones unlock as you level up." }),
+      picker("aura"),
       el("h3", { text: "Emotes" }),
       emotes,
       toggle("Earn XP and level up", null, () => settings.progression.enabled, (v) => (settings.progression.enabled = v)),
@@ -425,7 +446,134 @@ async function progressSection() {
     );
   }
   render(info);
+  refreshProgress = () => render(info);
   return card;
+}
+
+function charactersSection() {
+  const grid = el("div", { class: "char-grid" });
+  const cropHost = el("div", { class: "crop-host", hidden: true });
+  const message = el("div", { class: "hint" });
+  let current: Look = { ...DEFAULT_APPEARANCE };
+
+  function use(id: string) {
+    settings.pet.character = id;
+    save();
+    renderGrid();
+    refreshProgress();
+  }
+
+  async function remove(c: CharacterInfo) {
+    try {
+      await invoke("character_delete", { id: c.id });
+      characters = characters.filter((x) => x.id !== c.id);
+      if (settings.pet.character === c.id) settings.pet.character = "";
+      renderGrid();
+      refreshProgress();
+    } catch (e) {
+      message.textContent = String(e);
+    }
+  }
+
+  function renderGrid() {
+    const tile = (id: string, label: Node, ...extra: Node[]) =>
+      el(
+        "div",
+        { class: "char" + (settings.pet.character === id ? " current" : "") },
+        canvasPreview({ ...current, character: id }, "happy"),
+        label,
+        el("div", { class: "actions" }, ...extra),
+      );
+    const jellyInUse = settings.pet.character === "";
+    const jelly = tile(
+      "",
+      el("div", { class: "char-name", text: "Glowby (jellyfish)" }),
+      button(jellyInUse ? "In use" : "Use", jellyInUse ? "primary" : "", () => use("")),
+    );
+    const tiles = characters.map((c) => {
+      const name = el("input", { type: "text", class: "text char-name", value: c.name, maxlength: 40, title: "Rename" });
+      name.addEventListener("change", async () => {
+        try {
+          await invoke("character_rename", { id: c.id, name: name.value });
+          c.name = name.value.trim() || c.name;
+        } catch (e) {
+          message.textContent = String(e);
+        }
+      });
+      // Two clicks to remove, so a stray click can't lose a character.
+      let armed = 0;
+      const removeBtn = button("Remove", "ghost danger", () => {
+        if (armed) {
+          window.clearTimeout(armed);
+          void remove(c);
+          return;
+        }
+        removeBtn.textContent = "Click again to remove";
+        armed = window.setTimeout(() => {
+          armed = 0;
+          removeBtn.textContent = "Remove";
+        }, 4000);
+      });
+      const inUse = settings.pet.character === c.id;
+      return tile(c.id, name, button(inUse ? "In use" : "Use for Glowby", inUse ? "primary" : "", () => use(c.id)), removeBtn);
+    });
+    grid.replaceChildren(jelly, ...tiles);
+  }
+
+  async function importPicture() {
+    message.textContent = "";
+    const path = await open({
+      multiple: false,
+      title: "Choose a picture of your character",
+      filters: [{ name: "Pictures", extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp"] }],
+    });
+    if (typeof path !== "string") return;
+    let bitmap: ImageBitmap;
+    try {
+      const bytes = await invoke<ArrayBuffer>("character_read_source", { path });
+      bitmap = await createImageBitmap(new Blob([bytes]));
+    } catch (e) {
+      message.textContent = typeof e === "string" ? e : "Couldn't read that picture. Try a PNG or JPG.";
+      return;
+    }
+    const result = await crop(cropHost, bitmap, nameFromFile(path));
+    bitmap.close();
+    if (!result) return;
+    try {
+      const bytes = new Uint8Array(await result.png.arrayBuffer());
+      // The PNG goes as the raw request body; the name rides in a header (ASCII-encoded).
+      const info = await invoke<CharacterInfo>("character_add", bytes, { headers: { "x-name": encodeURIComponent(result.name) } });
+      setCharacterImage(info.id, await createImageBitmap(result.png));
+      characters = [...characters, info];
+      message.textContent = `${info.name} is ready and now in use. Pick another look anytime.`;
+      use(info.id);
+    } catch (e) {
+      message.textContent = String(e);
+    }
+  }
+
+  void invoke<ProgressInfo>("get_progress").then((info) => {
+    current = { ...chosenLook(info), character: "" };
+    renderGrid();
+  });
+  renderGrid();
+  return section(
+    "Characters",
+    "Import a picture of any character you like: an anime hero, a game character, your cat. Glowby wears it as a small round icon, with all his moods, hats, emotes and auras. Pictures stay in Glowby's data folder on this PC, and Glowby ships none of its own. Squad pets can wear them too.",
+    el("div", { class: "actions" }, button("Import a picture…", "primary", () => void importPicture())),
+    cropHost,
+    message,
+    grid,
+  );
+}
+
+function squadSection() {
+  return section(
+    "Squad mode",
+    "One small pet for each running Claude Code session, next to Glowby. Each pet levels up on its own from what its session does (tool uses, finished tasks, commits, fixes). Click a pet to see what it's doing, change its look, or chat with it. Chat talks to a copy of the session, so the one in your terminal is never disturbed.",
+    toggle("Squad mode", "Off by default.", () => settings.squad.enabled, (v) => (settings.squad.enabled = v)),
+    numberInput("Show at most", "1 to 6 pets.", 1, 6, () => settings.squad.maxShown, (v) => (settings.squad.maxShown = v), "pets"),
+  );
 }
 
 function breaksSection() {
@@ -611,7 +759,7 @@ function privacySection(info: AppInfo) {
     "Glowby sends nothing anywhere. Your settings, backups, and chat session IDs live only in this folder. (The chat itself talks to Anthropic through Claude Code, as Claude Code always does.)",
     el("div", { class: "inline" }, el("code", { text: info.dataDir }), button("Open data folder", "ghost", () => void invoke("open_folder", { which: "data" }))),
     info.pipeError ? el("p", { class: "message error", text: info.pipeError }) : null,
-    el("p", { class: "hint", text: `Version ${info.version}. Coming in the next phase: squad mode.` }),
+    el("p", { class: "hint", text: `Version ${info.version}.` }),
   );
 }
 
@@ -619,15 +767,19 @@ async function main() {
   const logo = document.getElementById("logo") as HTMLCanvasElement;
   new PetRenderer(logo).drawStill("happy");
 
-  const [loaded, monitors, info] = await Promise.all([
+  const [loaded, monitors, info, chars] = await Promise.all([
     invoke<Settings>("get_settings"),
     invoke<MonitorInfo[]>("list_monitors"),
     invoke<AppInfo>("app_info"),
+    invoke<CharacterInfo[]>("characters_list"),
   ]);
   settings = loaded;
+  characters = chars;
   app.replaceChildren(
     hooksSection(),
     await progressSection(),
+    charactersSection(),
+    squadSection(),
     petSection(monitors),
     permissionsSection(),
     chatSection(info),

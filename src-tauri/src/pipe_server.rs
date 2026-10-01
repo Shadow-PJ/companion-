@@ -154,6 +154,10 @@ fn on_event(app: &AppHandle, envelope: &HookEnvelope) {
     if matches!(envelope.event.as_str(), "PostToolUse" | "PostToolUseFailure")
         && let Some((kind, text)) = crate::actions::on_tool_result(app, &envelope.event, &envelope.payload)
     {
+        if kind == "done" {
+            // tests / build pass again: the squad pet of that session gets XP too
+            crate::squad::fixed(app, crate::sessions::str_field(&envelope.payload, "session_id").unwrap_or(""));
+        }
         state::toast(app, kind, text, project.clone(), 8);
         let wanted = if kind == "failed" { settings.pet.show_on_attention } else { settings.pet.show_on_done };
         pop_out |= wanted && !envelope.from_pet_chat;
@@ -192,6 +196,9 @@ fn on_event(app: &AppHandle, envelope: &HookEnvelope) {
     crate::projects::note_cwd(app, crate::sessions::str_field(payload, "cwd").unwrap_or(""));
     crate::quests::tick(app);
     crate::learn::on_event(app, &envelope.event, payload);
+    let session = crate::sessions::str_field(payload, "session_id").unwrap_or("");
+    let tools_this_turn = lock(&state.tracker).tools_this_turn(session);
+    crate::squad::on_event(app, &envelope.event, payload, envelope.from_pet_chat, tools_this_turn);
     if envelope.event == "PostToolUse" {
         if let Some(file) = crate::quests::written_test_file(payload) {
             crate::quests::test_written(app, file);

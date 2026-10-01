@@ -54,6 +54,22 @@ pub struct Session {
     pub from_pet_chat: bool,
     /// Tools used since your last prompt (a turn that used tools did real work).
     pub tools_this_turn: u32,
+    pub started: Instant,
+    /// Where Claude Code keeps this session's conversation (from the hook payload).
+    pub transcript_path: String,
+}
+
+/// One live session, for squad mode.
+#[derive(Clone, Debug)]
+pub struct SessionInfo {
+    pub id: String,
+    pub project: String,
+    pub cwd: String,
+    pub phase: Phase,
+    pub activity: String,
+    pub mood: Mood,
+    pub started: Instant,
+    pub transcript_path: String,
 }
 
 /// Why Glowby might pop out on its own.
@@ -114,7 +130,12 @@ impl Tracker {
             phase_since: now,
             from_pet_chat,
             tools_this_turn: 0,
+            started: now,
+            transcript_path: String::new(),
         });
+        if let Some(path) = str_field(p, "transcript_path").filter(|p| !p.is_empty()) {
+            session.transcript_path = path.to_string();
+        }
         match event {
             "UserPromptSubmit" => session.tools_this_turn = 0,
             "PreToolUse" => session.tools_this_turn += 1,
@@ -185,24 +206,39 @@ impl Tracker {
         self.sessions.values().filter(move |s| now.duration_since(s.last_event) < STALE_AFTER)
     }
 
+    /// Glowby's mood: the most urgent mood of any live session.
     pub fn mood(&self, now: Instant) -> Mood {
-        let live: Vec<&Session> = self.live(now).collect();
-        if live.iter().any(|s| s.phase == Phase::NeedsYou) {
-            return Mood::Alert;
-        }
-        if live.iter().any(|s| s.phase == Phase::Failed && now.duration_since(s.phase_since) < SICK_FOR) {
-            return Mood::Sick;
-        }
-        if live.iter().any(|s| matches!(s.phase, Phase::Thinking | Phase::Working)) {
-            return Mood::Working;
-        }
-        if live.iter().any(|s| s.phase == Phase::Done && now.duration_since(s.phase_since) < HAPPY_FOR) {
-            return Mood::Happy;
+        let moods: Vec<Mood> = self.live(now).map(|s| session_mood(s, now)).collect();
+        for wanted in [Mood::Alert, Mood::Sick, Mood::Working, Mood::Happy] {
+            if moods.contains(&wanted) {
+                return wanted;
+            }
         }
         if now.duration_since(self.last_any_event) > SLEEPY_AFTER {
             return Mood::Sleepy;
         }
         Mood::Idle
+    }
+
+    /// Your live Claude Code sessions (not Glowby's own chat), oldest first.
+    pub fn live_sessions(&self, now: Instant) -> Vec<SessionInfo> {
+        let mut list: Vec<SessionInfo> = self
+            .sessions
+            .iter()
+            .filter(|(_, s)| !s.from_pet_chat && now.duration_since(s.last_event) < STALE_AFTER)
+            .map(|(id, s)| SessionInfo {
+                id: id.clone(),
+                project: s.project.clone(),
+                cwd: s.cwd.clone(),
+                phase: s.phase,
+                activity: s.activity.clone(),
+                mood: session_mood(s, now),
+                started: s.started,
+                transcript_path: s.transcript_path.clone(),
+            })
+            .collect();
+        list.sort_by(|a, b| a.started.cmp(&b.started).then_with(|| a.id.cmp(&b.id)));
+        list
     }
 
     /// The next moment the mood could change on its own (e.g. "happy" fading to
@@ -297,11 +333,41 @@ mod tests {
     }
 
     #[test]
+    fn live_sessions_lists_each_session_with_its_own_mood() {
+        let mut t = Tracker::new();
+        let start = |t: &mut Tracker, id: &str, cwd: &str| {
+            t.apply("UserPromptSubmit", &json!({ "session_id": id, "cwd": cwd, "transcript_path": format!("C:\\t\\{id}.jsonl") }), false)
+        };
+        start(&mut t, "a", r"C:\code\one");
+        std::thread::sleep(Duration::from_millis(5));
+        start(&mut t, "b", r"C:\code\two");
+        t.apply("Stop", &json!({ "session_id": "b", "cwd": r"C:\code\two" }), false);
+        t.apply("UserPromptSubmit", &json!({ "session_id": "chat", "cwd": r"C:\code\one" }), true);
+        let live = t.live_sessions(Instant::now());
+        assert_eq!(live.len(), 2, "Glowby's own chat is not a squad member");
+        assert_eq!((live[0].id.as_str(), live[0].mood), ("a", Mood::Working));
+        assert_eq!((live[1].id.as_str(), live[1].mood), ("b", Mood::Happy));
+        assert_eq!(live[1].project, "two");
+        assert!(live[0].transcript_path.ends_with("a.jsonl"));
+    }
+
+    #[test]
     fn session_end_forgets_the_session() {
         let mut t = Tracker::new();
         ev(&mut t, "UserPromptSubmit", json!({}));
         ev(&mut t, "SessionEnd", json!({}));
         assert!(t.status(Instant::now()).is_none());
+    }
+}
+
+/// The mood one session would give Glowby on its own.
+fn session_mood(s: &Session, now: Instant) -> Mood {
+    match s.phase {
+        Phase::NeedsYou => Mood::Alert,
+        Phase::Failed if now.duration_since(s.phase_since) < SICK_FOR => Mood::Sick,
+        Phase::Thinking | Phase::Working => Mood::Working,
+        Phase::Done if now.duration_since(s.phase_since) < HAPPY_FOR => Mood::Happy,
+        _ => Mood::Idle,
     }
 }
 

@@ -4,6 +4,7 @@
 mod actions;
 mod applog;
 mod briefing;
+mod characters;
 mod chat;
 mod commands;
 mod dropzone;
@@ -23,6 +24,7 @@ mod quests;
 mod sessions;
 mod settings;
 mod single_instance;
+mod squad;
 mod sounds;
 mod state;
 mod tray;
@@ -132,6 +134,14 @@ fn main() {
             commands::github_remove_token,
             commands::github_status,
             commands::github_check_now,
+            commands::squad_chat_open,
+            commands::squad_set_look,
+            commands::characters_list,
+            commands::character_read_source,
+            commands::character_add,
+            commands::character_rename,
+            commands::character_delete,
+            commands::character_image,
             commands::drag_start,
             commands::dismiss_toast,
             commands::pet_hide,

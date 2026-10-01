@@ -1,7 +1,10 @@
 // The animation loop. It runs ONLY while Glowby is visible and stops completely
 // when hidden, so a hidden Glowby costs no CPU for drawing.
 
+import { drawAura } from "./character/auras";
+import { AVATAR_R, drawAvatar } from "./character/avatar";
 import { drawGlowby } from "./character/glowby";
+import { characterImage, onImageLoaded } from "./character/images";
 import { blendStyle, type Mood, type MoodStyle, STYLES, styleFor } from "./character/palette";
 
 /** Canvas size in CSS pixels. */
@@ -9,6 +12,8 @@ export const CANVAS_W = 168;
 export const CANVAS_H = 172;
 export const BODY_X = CANVAS_W / 2;
 const BASE_BODY_Y = 54;
+/** The round character icon sits a little lower than the jellyfish's bell. */
+const AVATAR_BODY_Y = 60;
 /** Tall hats need Glowby to sit a little lower so the hat stays on screen. */
 const HAT_LIFT: Record<string, number> = { sprout: 10, party: 18, wizard: 24, gradcap: 10, crown: 9, beanie: 7, headphones: 3 };
 /** Never draw more often than 60 times a second, even on 144 Hz screens. */
@@ -21,9 +26,16 @@ export interface Appearance {
   hat: string;
   color: string;
   weak: boolean;
+  aura: string;
+  /** Imported character id, "" = the jellyfish. */
+  character: string;
 }
 
+export const DEFAULT_APPEARANCE: Appearance = { stage: 0, hat: "", color: "periwinkle", weak: false, aura: "", character: "" };
+
 export class PetRenderer {
+  /** Extra drawing in the same frame (the squad pets), so there is only one loop. */
+  onFrame: ((t: number, dt: number) => void) | null = null;
   private ctx: CanvasRenderingContext2D;
   private running = false;
   private raf = 0;
@@ -36,14 +48,19 @@ export class PetRenderer {
   private lookTarget = { x: 0, y: 0 };
   private nextBlink = 2;
   private blinkStart = -1;
-  private appearance: Appearance = { stage: 0, hat: "", color: "periwinkle", weak: false };
+  private appearance: Appearance = { ...DEFAULT_APPEARANCE };
   private emote: { id: string; start: number } | null = null;
   private floaters: { text: string; start: number }[] = [];
+  private still: Mood | null = null;
 
   constructor(private canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext("2d")!;
     this.resize();
     matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener("change", () => this.resize());
+    // A still preview drawn before its picture loaded: draw it again once it's there.
+    onImageLoaded(() => {
+      if (this.still && !this.running) this.drawStill(this.still);
+    });
   }
 
   /** Sharp drawing on high-DPI screens: more device pixels, same CSS size. */
@@ -54,9 +71,16 @@ export class PetRenderer {
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
-  /** Where the bell's centre is inside the canvas (eyes aim from here). */
+  /** Where the body's centre is inside the canvas (eyes aim from here). */
   bodyY() {
-    return BASE_BODY_Y + (HAT_LIFT[this.appearance.hat] ?? 0);
+    const base = this.appearance.character ? AVATAR_BODY_Y : BASE_BODY_Y;
+    return base + (HAT_LIFT[this.appearance.hat] ?? 0);
+  }
+
+  /** How far the speech bubble may tuck up under the body (the icon has no tentacles). */
+  bubbleOverlap() {
+    if (!this.appearance.character) return 14;
+    return Math.max(14, CANVAS_H - (this.bodyY() + AVATAR_R + 18));
   }
 
   setMood(mood: Mood) {
@@ -88,6 +112,7 @@ export class PetRenderer {
   start() {
     if (this.running) return;
     this.running = true;
+    this.still = null;
     this.lastFrame = performance.now();
     this.raf = requestAnimationFrame(this.frame);
   }
@@ -102,6 +127,7 @@ export class PetRenderer {
   /** Draws a single still frame (Settings previews). */
   drawStill(mood: Mood, appearance?: Appearance) {
     if (appearance) this.appearance = appearance;
+    this.still = mood;
     this.setMood(mood);
     this.style = styleFor(mood, this.appearance.color);
     this.draw(1.2, 0);
@@ -115,6 +141,7 @@ export class PetRenderer {
     this.lastFrame = now;
     this.lastDraw = now;
     this.draw(now / 1000, dt);
+    this.onFrame?.(now / 1000, dt);
   };
 
   private draw(t: number, dt: number) {
@@ -132,8 +159,10 @@ export class PetRenderer {
     }
 
     const ctx = this.ctx;
+    const a = this.appearance;
+    const y = this.bodyY();
     ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
-    drawGlowby(ctx, {
+    const frame = {
       t,
       moodAge: t - this.moodSince,
       mood: this.mood,
@@ -141,10 +170,18 @@ export class PetRenderer {
       look: this.look,
       open: this.blink(t),
       x: BODY_X,
-      y: this.bodyY(),
-      appearance: this.appearance,
+      y,
+      appearance: a,
       emote,
-    });
+    };
+    // Auras are centred on the body: the icon, or the jellyfish's bell (a bit lower, over the tentacles).
+    const auraY = a.character ? y : y + 6;
+    const auraR = a.character ? AVATAR_R + 3 : 38;
+    const power = (this.mood === "sleepy" ? 0.45 : 1) * (a.weak ? 0.6 : 1);
+    drawAura(ctx, a.aura, BODY_X, auraY, auraR, t, "back", power);
+    if (a.character) drawAvatar(ctx, frame, characterImage(a.character));
+    else drawGlowby(ctx, frame);
+    drawAura(ctx, a.aura, BODY_X, auraY, auraR, t, "front", power);
     this.drawFloaters(t);
   }
 

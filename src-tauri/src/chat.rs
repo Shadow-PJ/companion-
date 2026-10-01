@@ -37,6 +37,8 @@ pub struct ChatState {
     pub attachments: Vec<PathBuf>,
     /// The running request may only read: the chat gate blocks file edits.
     pub read_only: bool,
+    /// Chatting with a squad pet: talk to (a copy of) that session instead.
+    pub target: Option<crate::squad::ChatTarget>,
     cancel: Option<oneshot::Sender<()>>,
 }
 
@@ -47,6 +49,9 @@ pub struct ChatRequest {
     pub read_only: bool,
     /// Run in this project folder instead of the chat's usual one.
     pub dir: Option<String>,
+    /// Typed in the chat box: goes to the squad pet you're chatting with, if any.
+    /// (Quick actions, offers and the briefing always use the normal chat.)
+    pub use_target: bool,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -72,6 +77,8 @@ pub struct ChatView {
     pub folder_source: &'static str,
     pub has_project: bool,
     pub has_conversation: bool,
+    /// The squad pet you're chatting with, if any.
+    pub squad_name: Option<String>,
 }
 
 /// Files dropped on Glowby wait here until you send a message.
@@ -133,8 +140,18 @@ pub fn effective_dir(state: &AppState, settings: &Settings) -> (String, &'static
 }
 
 pub fn view(state: &AppState, settings: &Settings) -> ChatView {
-    let (dir, source) = effective_dir(state, settings);
-    let has_conversation = lock(&state.chat_sessions).contains_key(&dir);
+    let target = lock(&state.chat).target.as_ref().map(|t| (t.dir.clone(), t.name.clone(), t.session_id.clone()));
+    let (dir, source, has_conversation, squad_name) = match target {
+        Some((dir, name, id)) => {
+            let forked = lock(&state.squad).members.get(&id).is_some_and(|m| !m.fork.is_empty());
+            (dir, "squad", forked, Some(name))
+        }
+        None => {
+            let (dir, source) = effective_dir(state, settings);
+            let has = lock(&state.chat_sessions).contains_key(&dir);
+            (dir, source, has, None)
+        }
+    };
     let chat = lock(&state.chat);
     ChatView {
         enabled: settings.chat.enabled,
@@ -156,7 +173,27 @@ pub fn view(state: &AppState, settings: &Settings) -> ChatView {
         project_path: dir,
         folder_source: source,
         has_conversation,
+        squad_name,
     }
+}
+
+/// Chat with a squad pet: your messages go to a copy of its session
+/// (`--resume <id> --fork-session`), so Claude knows what that session did,
+/// but the session still running in your terminal is never touched.
+pub fn set_target(app: &AppHandle, target: Option<crate::squad::ChatTarget>) {
+    let state = app.state::<AppState>();
+    let mut chat = lock(&state.chat);
+    let same = match (&chat.target, &target) {
+        (Some(a), Some(b)) => a.session_id == b.session_id,
+        (None, None) => true,
+        _ => false,
+    };
+    if !same && !chat.busy {
+        chat.reply.clear();
+        chat.error = None;
+        chat.title.clear();
+    }
+    chat.target = target;
 }
 
 /// Finds the real claude.exe (not the npm .cmd shim).
@@ -248,9 +285,16 @@ async fn send_inner(app: &AppHandle, request: ChatRequest) -> Result<(), String>
     if !settings.chat.enabled {
         return Err("Chat is turned off in Settings.".into());
     }
-    let dir = match request.dir.clone().filter(|d| Path::new(d).is_dir()) {
-        Some(d) => d,
-        None => effective_dir(&state, &settings).0,
+    let target = if request.use_target {
+        lock(&state.chat).target.as_ref().map(|t| (t.session_id.clone(), t.dir.clone()))
+    } else {
+        lock(&state.chat).target = None;
+        None
+    };
+    let dir = match (&target, request.dir.clone().filter(|d| Path::new(d).is_dir())) {
+        (Some((_, dir)), _) => dir.clone(),
+        (None, Some(d)) => d,
+        (None, None) => effective_dir(&state, &settings).0,
     };
     if dir.is_empty() {
         return Err("Choose a project folder first (click the folder chip).".into());
@@ -262,7 +306,15 @@ async fn send_inner(app: &AppHandle, request: ChatRequest) -> Result<(), String>
     let claude = find_claude(&settings.chat.claude_path)
         .ok_or("Couldn't find claude.exe. Set its path in Settings → Chat.")?;
     let chat_hooks = write_chat_hooks(&app)?;
-    let resume = if settings.chat.keep_conversation { lock(&state.chat_sessions).get(&dir).cloned() } else { None };
+    // (session to resume, make a copy of it first?)
+    let resume: Option<(String, bool)> = match &target {
+        Some((session_id, _)) => {
+            let fork = crate::squad::fork_of(&app, session_id);
+            if settings.chat.keep_conversation && !fork.is_empty() { Some((fork, false)) } else { Some((session_id.clone(), true)) }
+        }
+        None if settings.chat.keep_conversation => lock(&state.chat_sessions).get(&dir).cloned().map(|id| (id, false)),
+        None => None,
+    };
 
     let (cancel_tx, mut cancel_rx) = oneshot::channel();
     let attachments = {
@@ -298,8 +350,11 @@ async fn send_inner(app: &AppHandle, request: ChatRequest) -> Result<(), String>
     for extra in &extra_dirs {
         cmd.arg("--add-dir").arg(extra);
     }
-    if let Some(id) = &resume {
+    if let Some((id, fork)) = &resume {
         cmd.args(["--resume", id]);
+        if *fork {
+            cmd.arg("--fork-session");
+        }
     }
     cmd.current_dir(&dir)
         .env(PET_CHAT_ENV, "1")
@@ -318,7 +373,8 @@ async fn send_inner(app: &AppHandle, request: ChatRequest) -> Result<(), String>
         chat.cancel = None;
         chat.activity.clear();
         match &outcome {
-            Ok(Some(session_id)) if settings.chat.keep_conversation => {
+            // squad chats remember their copy on the squad pet (below)
+            Ok(Some(session_id)) if settings.chat.keep_conversation && target.is_none() => {
                 let mut sessions = lock(&state.chat_sessions);
                 sessions.insert(dir.clone(), session_id.clone());
                 let _ = settings::save_json(&state.paths.chat_sessions_file, &*sessions);
@@ -326,6 +382,11 @@ async fn send_inner(app: &AppHandle, request: ChatRequest) -> Result<(), String>
             Ok(_) => {}
             Err(e) => chat.error = Some(e.clone()),
         }
+    }
+    if let (Ok(Some(copy)), Some((squad_session, _))) = (&outcome, &target)
+        && settings.chat.keep_conversation
+    {
+        crate::squad::set_fork(&app, squad_session, copy);
     }
     crate::sounds::play(&app, if outcome.is_ok() { crate::sounds::Sound::Done } else { crate::sounds::Sound::Error });
     // If you closed the chat while waiting, pop out to show the reply.
@@ -457,8 +518,12 @@ pub fn cancel(app: &AppHandle) {
 /// "New chat": forget the conversation for the current project folder.
 pub fn new_conversation(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let (dir, _) = effective_dir(&state, &state.settings());
-    {
+    // With a squad pet: drop the copy, so the next message starts a fresh one.
+    let squad_session = lock(&state.chat).target.as_ref().map(|t| t.session_id.clone());
+    if let Some(id) = squad_session {
+        crate::squad::set_fork(app, &id, "");
+    } else {
+        let (dir, _) = effective_dir(&state, &state.settings());
         let mut sessions = lock(&state.chat_sessions);
         sessions.remove(&dir);
         let _ = settings::save_json(&state.paths.chat_sessions_file, &*sessions);

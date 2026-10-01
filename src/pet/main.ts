@@ -5,14 +5,19 @@ import { listen } from "@tauri-apps/api/event";
 import { diag } from "../shared/diag";
 import type { PetView } from "../shared/types";
 import { Bubble } from "./bubble";
+import { keepOnly } from "./character/images";
 import { BODY_X, PetRenderer } from "./renderer";
 import { playSound } from "./sound";
+import { Squad } from "./squad";
 
 const stage = document.getElementById("stage")!;
 const canvas = document.getElementById("pet") as HTMLCanvasElement;
+const squadCanvas = document.getElementById("squad") as HTMLCanvasElement;
 const bubbleEl = document.getElementById("bubble")!;
 
 const renderer = new PetRenderer(canvas);
+const squad = new Squad(squadCanvas);
+renderer.onFrame = (t, dt) => squad.draw(t, dt);
 const bubble = new Bubble(bubbleEl, () => scheduleRegions());
 let visible = false;
 let followMouse = true;
@@ -22,6 +27,11 @@ function apply(view: PetView) {
   if (!followMouse) renderer.lookToward(0, 0);
   renderer.setMood(view.mood);
   renderer.setAppearance(view.look);
+  squad.set(view.squad);
+  squad.selected = bubble.squadSelected;
+  bubbleEl.style.marginTop = `-${renderer.bubbleOverlap()}px`;
+  // Only keep the pictures someone is wearing in memory.
+  keepOnly([view.look.character, ...view.squad.map((m) => m.character)].filter(Boolean));
   bubble.render(view);
 }
 
@@ -61,6 +71,10 @@ function scheduleRegions() {
     const rects: { x: number; y: number; w: number; h: number }[] = [];
     const c = canvas.getBoundingClientRect();
     rects.push({ x: c.left + 30, y: Math.max(c.top, 0), w: c.width - 60, h: c.height - 18 });
+    if (!squadCanvas.hidden) {
+      const s = squadCanvas.getBoundingClientRect();
+      for (const slot of squad.slots()) rects.push({ x: s.left + slot.x, y: s.top + slot.y, w: slot.w, h: slot.h });
+    }
     if (!bubbleEl.hidden) {
       const b = bubbleEl.getBoundingClientRect();
       rects.push({ x: b.left - 4, y: b.top - 8, w: b.width + 8, h: b.height + 12 });
@@ -90,6 +104,13 @@ window.addEventListener("pointerup", (e) => {
   press = null;
   if (wasClick) bubble.toggleChat();
 });
+// Click a squad pet = its card (what it's doing, its look, chat).
+squadCanvas.addEventListener("click", (e) => {
+  const r = squadCanvas.getBoundingClientRect();
+  const id = squad.hit(e.clientX - r.left, e.clientY - r.top);
+  if (id) bubble.toggleSquad(id);
+  squad.selected = bubble.squadSelected;
+});
 // Right-click Glowby = quick actions. No browser context menu anywhere.
 window.addEventListener("contextmenu", (e) => e.preventDefault());
 canvas.addEventListener("contextmenu", () => bubble.toggleMenu());
@@ -105,6 +126,12 @@ void listen<string>("pet://emote", (e) => renderer.playEmote(e.payload));
 void listen<{ amount: number; reason: string }>("pet://xp", (e) => {
   if (visible) renderer.addFloater(`+${e.payload.amount} XP`);
 });
+void listen<{ id: string; text: string }>("pet://squad-levelup", (e) => {
+  if (visible) squad.levelUp(e.payload.id, e.payload.text);
+});
 bubble.onEmote = (id) => void invoke("play_emote", { id });
+bubble.onSquadChange = () => {
+  squad.selected = bubble.squadSelected;
+};
 
 void invoke<PetView>("pet_ready").then(apply);

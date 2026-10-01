@@ -2,12 +2,37 @@
 // stage, mood, hat, colour and emote side by side, to check the art quickly.
 
 import type { Mood } from "../pet/character/palette";
-import { type Appearance, PetRenderer } from "../pet/renderer";
+import { setCharacterImage } from "../pet/character/images";
+import { type Appearance, DEFAULT_APPEARANCE, PetRenderer } from "../pet/renderer";
 
 const root = document.getElementById("gallery")!;
 if (location.search.includes("light")) document.body.classList.add("light");
 
-const base: Appearance = { stage: 0, hat: "", color: "periwinkle", weak: false };
+const base: Appearance = { ...DEFAULT_APPEARANCE };
+
+// A stand-in "imported character" drawn in code (the gallery has no picture files).
+async function testCharacter() {
+  const c = new OffscreenCanvas(256, 256);
+  const g = c.getContext("2d")!;
+  const sky = g.createLinearGradient(0, 0, 256, 256);
+  sky.addColorStop(0, "#2B3A67");
+  sky.addColorStop(1, "#E07A5F");
+  g.fillStyle = sky;
+  g.fillRect(0, 0, 256, 256);
+  g.fillStyle = "#F2CC8F";
+  g.beginPath();
+  g.arc(128, 140, 70, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = "#3D405B";
+  for (const x of [102, 154]) {
+    g.beginPath();
+    g.arc(x, 132, 9, 0, Math.PI * 2);
+    g.fill();
+  }
+  g.fillRect(70, 52, 116, 30);
+  setCharacterImage("test", c.transferToImageBitmap());
+}
+await testCharacter();
 
 function row(title: string, items: [string, Mood, Partial<Appearance>, string?][]) {
   const h = document.createElement("h2");
@@ -23,7 +48,9 @@ function row(title: string, items: [string, Mood, Partial<Appearance>, string?][
     r.append(fig);
     const renderer = new PetRenderer(canvas);
     renderer.drawStill(mood, { ...base, ...look });
-    if (emote) {
+    if (emote === "live") {
+      renderer.start();
+    } else if (emote) {
       renderer.start();
       renderer.playEmote(emote);
       setInterval(() => renderer.playEmote(emote), 2200);
@@ -54,4 +81,22 @@ row(
 row(
   "Emotes (animated)",
   ["wave", "heart", "spin", "dance", "fireworks"].map((e) => [e, "happy", { stage: 1 }, e]),
+);
+row(
+  "Auras (animated)",
+  ["sparkle", "flame", "sakura", "lightning", "cursed", "infinity", "sun", "rainbow"].map((a) => [a, "idle", { stage: 1, aura: a }, "live"]),
+);
+row(
+  "Imported character (moods)",
+  (["idle", "working", "happy", "alert", "sleepy", "sick"] as Mood[]).map((m) => [m, m, { character: "test", stage: 1 }, "live"]),
+);
+row(
+  "Imported character (stages, hat, auras)",
+  [
+    ["Little", "idle", { character: "test", stage: 0 }],
+    ["Starlit + crown", "idle", { character: "test", stage: 2, hat: "crown" }, "live"],
+    ["Aurora + flame", "happy", { character: "test", stage: 3, aura: "flame" }, "live"],
+    ["Golden power-up", "working", { character: "test", stage: 1, aura: "lightning" }, "live"],
+    ["Cursed energy", "idle", { character: "test", stage: 1, aura: "cursed", hat: "wizard" }, "live"],
+  ],
 );

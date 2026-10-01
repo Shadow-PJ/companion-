@@ -391,3 +391,62 @@ canvas.preview.faded {
 .message.error {
   color: var(--error);
 }
+/* imported characters */
+.char-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 12px;
+}
+.char {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 168px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.char.current {
+  border-color: var(--accent);
+  background: var(--soft);
+}
+.char .actions {
+  justify-content: center;
+  margin-top: 2px;
+}
+.char-name {
+  width: 100%;
+  text-align: center;
+  font-weight: 600;
+}
+.crop-host {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.crop {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-start;
+}
+.crop-canvas {
+  width: 260px;
+  height: 260px;
+  border-radius: 10px;
+  background: repeating-conic-gradient(var(--soft) 0 25%, transparent 0 50%) 0 0 / 20px 20px;
+  cursor: grab;
+  touch-action: none;
+}
+.crop-canvas:active {
+  cursor: grabbing;
+}
+.crop-side {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 220px;
+}

@@ -29,6 +29,9 @@ pub struct Paths {
     pub progress_file: PathBuf,
     pub quests_file: PathBuf,
     pub projects_file: PathBuf,
+    pub characters_file: PathBuf,
+    pub characters_dir: PathBuf,
+    pub squad_file: PathBuf,
 }
 
 pub struct AppState {
@@ -47,6 +50,8 @@ pub struct AppState {
     pub projects: Mutex<crate::projects::Projects>,
     pub learn: Mutex<crate::learn::Learn>,
     pub github: Mutex<crate::github::Github>,
+    pub characters: Mutex<crate::characters::Characters>,
+    pub squad: Mutex<crate::squad::Squad>,
     timer: watch::Sender<Option<Instant>>,
     timer_rx: Mutex<Option<watch::Receiver<Option<Instant>>>>,
 }
@@ -132,6 +137,10 @@ pub struct PetView {
     pub quests: Vec<crate::quests::QuestView>,
     pub briefing: Option<crate::briefing::BriefingView>,
     pub quiz: Option<crate::learn::QuizView>,
+    /// Squad mode: one small pet per live Claude Code session (empty when off).
+    pub squad: Vec<crate::squad::SquadView>,
+    /// Your imported characters (id + name), for the squad pets' "Look" choice.
+    pub characters: Vec<ActionView>,
     pub follow_mouse: bool,
     pub hooks_installed: bool,
     pub game_active: bool,
@@ -160,8 +169,13 @@ impl AppState {
             progress_file: config_dir.join("progress.json"),
             quests_file: config_dir.join("quests.json"),
             projects_file: config_dir.join("projects.json"),
+            characters_file: config_dir.join("characters.json"),
+            characters_dir: config_dir.join("characters"),
+            squad_file: config_dir.join("squad.json"),
             config_dir,
         };
+        let characters: crate::characters::Characters = settings::load_json(&paths.characters_file);
+        let squad: crate::squad::Squad = settings::load_json(&paths.squad_file);
         let progress: Progress = settings::load_json(&paths.progress_file);
         let quests: crate::quests::QuestBook = settings::load_json(&paths.quests_file);
         let projects: crate::projects::Projects = settings::load_json(&paths.projects_file);
@@ -184,6 +198,8 @@ impl AppState {
             projects: Mutex::new(projects),
             learn: Mutex::new(crate::learn::Learn::default()),
             github: Mutex::new(crate::github::Github::default()),
+            characters: Mutex::new(characters),
+            squad: Mutex::new(squad),
             timer,
             timer_rx: Mutex::new(Some(timer_rx)),
             paths,
@@ -231,18 +247,26 @@ fn view_and_deadline(app: &AppHandle) -> (PetView, Option<Instant>) {
         let q = lock(&state.perms);
         (q.front_view(), !q.is_empty())
     };
-    let (tracked, status, tracker_next) = {
+    let (tracked, status, tracker_next, live) = {
         let t = lock(&state.tracker);
-        (t.mood(now), t.status(now), t.next_change(now))
+        let live = if settings.squad.enabled { t.live_sessions(now) } else { Vec::new() };
+        (t.mood(now), t.status(now), t.next_change(now), live)
     };
+    let characters: Vec<ActionView> =
+        lock(&state.characters).list.iter().map(|c| ActionView { id: c.id.clone(), label: c.name.clone() }).collect();
+    let known_character = |id: &str| characters.iter().any(|c| c.id == id);
+    let squad = crate::squad::views(app, &live, settings.squad.max_shown as usize, known_character);
     let chat_view = chat::view(&state, &settings);
     let failing = if settings.health { lock(&state.health).latest().cloned() } else { None };
     let wall_now = chrono::Local::now();
-    let (progress_view, look, emotes, energy_drop) = {
+    let (progress_view, mut look, emotes, energy_drop) = {
         let p = lock(&state.progress);
         let emotes = crate::progress::unlocked_emotes(&p).into_iter().map(|(id, label)| ActionView { id: id.into(), label: label.into() }).collect();
         (crate::progress::view(&p, wall_now), crate::progress::look(&p, &settings, wall_now), emotes, crate::progress::next_energy_drop(&p, wall_now))
     };
+    if !known_character(&look.character) {
+        look.character.clear();
+    }
     let quests = crate::quests::views(app);
     let (quiz, quiz_deadline) = {
         let mut learn = lock(&state.learn);
@@ -323,6 +347,8 @@ fn view_and_deadline(app: &AppHandle) -> (PetView, Option<Instant>) {
         quests,
         briefing: ui.briefing.clone(),
         quiz,
+        squad,
+        characters,
         follow_mouse: settings.pet.follow_mouse,
         hooks_installed: ui.hooks_installed,
         game_active: ui.game_active,

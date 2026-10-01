@@ -49,9 +49,18 @@ For development with live reload of the web parts: `npm run dev`.
 * **Daily quests:** 3 small goals a day with XP. Difficulty and types in Settings.
 * **GitHub CI check** (off by default): Glowby tells you when Actions fails on your
   branch. The token is stored in Windows Credential Manager.
+* **Your own characters:** Settings → Characters → **Import a picture…**, crop it to a
+  circle, and Glowby wears it as a small round icon with all his moods, hats and emotes.
+  Use pictures you have, e.g. your favourite anime characters. They stay on your PC.
+* **Auras:** power-up effects (flames, golden power-up, cursed energy, infinity rings …)
+  that unlock as you level up. Settings → Glowby's progress → Aura.
+* **Squad mode** (off by default, Settings → Squad mode): one small pet per running
+  Claude Code session, each levelling up on its own. Click a pet for what it's doing,
+  its look, or **Chat with …** (talks to a copy of that session, so the original in your
+  terminal isn't disturbed).
 
 For art changes, `npm run vite:dev` and open `http://127.0.0.1:1420/gallery.html` to see
-every stage, mood, hat, colour and emote at once.
+every stage, mood, hat, colour, emote and aura at once, plus a stand-in imported character.
 
 ## Testing without Claude Code
 
@@ -89,7 +98,8 @@ Counts glowby.exe plus all of its WebView2 helper processes.
 * `settings.json` is changed only after you review a diff. It's backed up first, written
   atomically, and verified. **Uninstall hooks** removes only Glowby's entries.
 * No telemetry. Data lives in `%APPDATA%\dev.glowby.app` (settings, backups, chat
-  session IDs, test/build health, progress, quests, recent projects) and
+  session IDs, test/build health, progress, quests, recent projects, squad pets, your
+  imported character pictures) and
   `%LOCALAPPDATA%\Glowby\bin` (the hook program). The only network traffic Glowby itself
   makes is the optional GitHub CI check (api.github.com, only when turned on); chat and
   learn mode go through Claude Code with your login.

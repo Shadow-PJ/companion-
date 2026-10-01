@@ -57,11 +57,33 @@ body {
   }
 }
 
+#stage {
+  position: relative;
+}
 #pet {
+  position: relative;
+  z-index: 1;
   width: 168px;
   height: 172px;
   cursor: grab;
   touch-action: none;
+}
+/* squad pets: one wide canvas behind Glowby, pets on both sides */
+#squad {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 480px;
+  height: 104px;
+  transform: translateX(-50%);
+  cursor: pointer;
+}
+#squad[hidden] {
+  display: none;
+}
+#bubble {
+  position: relative;
+  z-index: 2;
 }
 
 .bubble {
@@ -437,4 +459,19 @@ pre.small-pre {
 }
 .chat-form textarea:focus {
   border-color: var(--accent);
+}
+
+/* squad pet card */
+.squad-card {
+  width: 290px;
+}
+.looks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 2px 0 4px;
+}.btn.chip.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
 }

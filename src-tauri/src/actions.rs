@@ -93,7 +93,7 @@ pub fn run_prompt_in(app: &AppHandle, folder: Option<String>, title: String, tem
     state::publish(app);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let _ = chat::send(app, ChatRequest { message, title, read_only, dir: folder }).await;
+        let _ = chat::send(app, ChatRequest { message, title, read_only, dir: folder, use_target: false }).await;
     });
 }
 
@@ -229,7 +229,7 @@ pub fn on_tool_result(app: &AppHandle, event: &str, payload: &serde_json::Value)
 }
 
 /// `git commit …` (not a dry run) that succeeded.
-fn is_commit_command(command: &str) -> bool {
+pub(crate) fn is_commit_command(command: &str) -> bool {
     let c = command.to_lowercase();
     c.contains("git commit") && !c.contains("--dry-run")
 }

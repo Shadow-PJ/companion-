@@ -177,10 +177,13 @@ async fn repos(app: &AppHandle) -> Vec<RepoInfo> {
 
 /// One HTTPS request to the GitHub API (blocking, so it runs on a worker thread).
 fn latest_run(token: &str, slug: &str, branch: &str) -> Result<Option<Value>, String> {
-    let url = format!("https://api.github.com/repos/{slug}/actions/runs?branch={branch}&per_page=1");
+    let url = format!("https://api.github.com/repos/{slug}/actions/runs");
     let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(20))).build().into();
     let mut response = agent
         .get(&url)
+        // .query() percent-encodes, so branch names with & or # stay intact
+        .query("branch", branch)
+        .query("per_page", "1")
         .header("Authorization", &format!("Bearer {token}"))
         .header("Accept", "application/vnd.github+json")
         .header("X-GitHub-Api-Version", "2022-11-28")

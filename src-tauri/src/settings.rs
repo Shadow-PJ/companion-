@@ -29,6 +29,22 @@ pub struct Settings {
     pub learn: LearnSettings,
     pub quests: QuestSettings,
     pub github: GithubSettings,
+    pub squad: SquadSettings,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SquadSettings {
+    /// Off by default: one small pet per running Claude Code session.
+    pub enabled: bool,
+    /// How many squad pets fit next to Glowby (1–6).
+    pub max_shown: u32,
+}
+
+impl Default for SquadSettings {
+    fn default() -> Self {
+        Self { enabled: false, max_shown: 6 }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -107,14 +123,15 @@ pub struct ProgressionSettings {
     pub enabled: bool,
     /// Get sleepy and pale when ignored for days (never dies).
     pub neglect: bool,
-    /// Equipped hat id ("" = none) and colour id.
+    /// Equipped hat id ("" = none), colour id and aura id ("" = none).
     pub hat: String,
     pub color: String,
+    pub aura: String,
 }
 
 impl Default for ProgressionSettings {
     fn default() -> Self {
-        Self { enabled: true, neglect: true, hat: String::new(), color: "periwinkle".into() }
+        Self { enabled: true, neglect: true, hat: String::new(), color: "periwinkle".into(), aura: String::new() }
     }
 }
 
@@ -216,6 +233,8 @@ pub fn default_quick_actions() -> Vec<QuickAction> {
 pub struct PetSettings {
     /// Monitor name as Windows reports it; empty = primary monitor.
     pub monitor: String,
+    /// An imported character to show instead of the jellyfish ("" = Glowby himself).
+    pub character: String,
     /// Horizontal position along the top edge: 0.0 = far left, 1.0 = far right.
     pub position: f64,
     /// Thin coloured line at the top edge while Glowby is hidden (blue = working, amber = needs you).
@@ -276,6 +295,7 @@ impl Default for Settings {
             learn: LearnSettings::default(),
             quests: QuestSettings::default(),
             github: GithubSettings::default(),
+            squad: SquadSettings::default(),
         }
     }
 }
@@ -284,6 +304,7 @@ impl Default for PetSettings {
     fn default() -> Self {
         Self {
             monitor: String::new(),
+            character: String::new(),
             position: 0.5,
             status_line: true,
             follow_mouse: true,
@@ -322,6 +343,7 @@ impl Settings {
         self.learn.every_mins = self.learn.every_mins.clamp(5, 240);
         self.quests.per_day = self.quests.per_day.clamp(1, 5);
         self.github.every_mins = self.github.every_mins.clamp(5, 180);
+        self.squad.max_shown = self.squad.max_shown.clamp(1, 6);
         let mut seen = std::collections::HashSet::new();
         self.quick_actions.actions.truncate(20);
         for (i, action) in self.quick_actions.actions.iter_mut().enumerate() {

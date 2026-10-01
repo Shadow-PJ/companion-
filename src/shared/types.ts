@@ -43,11 +43,15 @@ export interface Look {
   hat: string;
   color: string;
   weak: boolean;
+  /** Power-up effect around Glowby ("" = none). */
+  aura: string;
+  /** Imported character id ("" = the jellyfish). */
+  character: string;
 }
 
 export interface CosmeticView {
   id: string;
-  kind: "hat" | "color" | "emote";
+  kind: "hat" | "color" | "emote" | "aura";
   name: string;
   unlocked: boolean;
   requirement: string;
@@ -128,9 +132,36 @@ export interface ChatView {
   project: string;
   projectPath: string;
   /** chosen = from Settings, recent = your latest Claude Code session's folder */
-  folderSource: "chosen" | "recent" | "none";
+  folderSource: "chosen" | "recent" | "none" | "squad";
   hasProject: boolean;
   hasConversation: boolean;
+  /** Chatting with this squad pet (a copy of its session), or null. */
+  squadName: string | null;
+}
+
+export interface SquadMember {
+  id: string;
+  name: string;
+  project: string;
+  phase: StatusView["phase"];
+  activity: string;
+  mood: Mood;
+  level: number;
+  stage: number;
+  xpIntoLevel: number;
+  xpForLevel: number;
+  tasks: number;
+  tools: number;
+  minutes: number;
+  character: string;
+  color: string;
+  hasChat: boolean;
+}
+
+export interface CharacterInfo {
+  id: string;
+  name: string;
+  added: string;
 }
 
 export interface PetView {
@@ -149,6 +180,9 @@ export interface PetView {
   quests: QuestView[];
   briefing: BriefingView | null;
   quiz: QuizView | null;
+  squad: SquadMember[];
+  /** Imported characters (id + name). */
+  characters: ActionView[];
   followMouse: boolean;
   hooksInstalled: boolean;
   gameActive: boolean;
@@ -159,6 +193,7 @@ export type ChatMode = "ask" | "readOnly" | "acceptEdits";
 export interface Settings {
   pet: {
     monitor: string;
+    character: string;
     position: number;
     statusLine: boolean;
     followMouse: boolean;
@@ -173,7 +208,7 @@ export interface Settings {
   dropFiles: boolean;
   errorWatcher: boolean;
   health: boolean;
-  progression: { enabled: boolean; neglect: boolean; hat: string; color: string };
+  progression: { enabled: boolean; neglect: boolean; hat: string; color: string; aura: string };
   breaks: { enabled: boolean; intervalMins: number };
   sounds: {
     enabled: boolean;
@@ -188,6 +223,7 @@ export interface Settings {
   learn: { enabled: boolean; everyMins: number };
   quests: { enabled: boolean; difficulty: "easy" | "normal" | "hard"; perDay: number; kinds: string[] };
   github: { enabled: boolean; everyMins: number };
+  squad: { enabled: boolean; maxShown: number };
 }
 
 export interface QuickAction {
