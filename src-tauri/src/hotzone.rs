@@ -25,6 +25,11 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 /// Sent after TrackMouseEvent when the mouse leaves (defined in a module we don't otherwise need).
 const WM_MOUSELEAVE: u32 = 0x02A3;
+/// Sent when the clipboard changes (only while the opt-in error watcher is on).
+const WM_CLIPBOARDUPDATE: u32 = 0x031D;
+const CLIPBOARD_TIMER: usize = 2;
+/// Wait a moment before reading, so the app that copied has finished writing.
+const CLIPBOARD_SETTLE_MS: u32 = 150;
 
 static APP: OnceLock<AppHandle> = OnceLock::new();
 static ZONE: AtomicIsize = AtomicIsize::new(0);
@@ -41,6 +46,11 @@ fn wide(text: &str) -> Vec<u16> {
 
 fn zone() -> HWND {
     ZONE.load(Ordering::Relaxed) as HWND
+}
+
+/// The strip's window handle (also used for clipboard and drag-and-drop messages).
+pub fn hwnd() -> HWND {
+    zone()
 }
 
 /// Must run on the main (UI) thread, which pumps this window's messages.
@@ -153,11 +163,22 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 KillTimer(hwnd, DWELL_TIMER);
                 0
             }
+            WM_TIMER if wparam == CLIPBOARD_TIMER => {
+                KillTimer(hwnd, CLIPBOARD_TIMER);
+                if let Some(app) = APP.get() {
+                    crate::error_watch::on_clipboard_settled(app, hwnd);
+                }
+                0
+            }
             WM_TIMER => {
                 KillTimer(hwnd, DWELL_TIMER);
                 if cursor_inside(hwnd) {
                     summon();
                 }
+                0
+            }
+            WM_CLIPBOARDUPDATE => {
+                SetTimer(hwnd, CLIPBOARD_TIMER, CLIPBOARD_SETTLE_MS, None);
                 0
             }
             WM_LBUTTONDOWN => {

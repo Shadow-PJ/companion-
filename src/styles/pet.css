@@ -196,7 +196,76 @@ pre.detail {
   cursor: default;
 }
 
+/* quick actions menu */
+.menu {
+  width: 260px;
+}
+.menu .eyebrow {
+  margin-bottom: 4px;
+}
+.btn.menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border-color: transparent;
+  padding: 6px 8px;
+  margin: 1px 0;
+}
+.btn.menu-item.subtle {
+  color: var(--muted);
+}
+.menu hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 6px 0;
+}
+
+/* offers and the drop hint */
+.offer {
+  width: 300px;
+}
+pre.small-pre {
+  max-height: 64px;
+}
+.note.drop {
+  text-align: center;
+}
+
 /* chat */
+.asked {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.file {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
+  padding: 1px 2px 1px 8px;
+  border-radius: 999px;
+  background: var(--chip);
+  max-width: 200px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.btn.tiny {
+  padding: 0 5px;
+  font-size: 13px;
+  line-height: 16px;
+}
+.actions.suggest {
+  margin: 0 0 6px;
+}
 .chat {
   width: 316px;
 }

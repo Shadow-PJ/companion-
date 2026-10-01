@@ -1,10 +1,14 @@
 // Release builds are GUI-only: no console window.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod actions;
 mod applog;
 mod chat;
 mod commands;
+mod dropzone;
+mod error_watch;
 mod gamemode;
+mod health;
 mod hooks_installer;
 mod hotzone;
 mod permissions;
@@ -43,6 +47,8 @@ fn main() {
 
             // Order matters: windows first, then things that reference them.
             hotzone::create(&handle);
+            dropzone::register_edge(&handle);
+            error_watch::apply(&handle, app.state::<AppState>().settings().error_watcher);
             pet_window::create(&handle)?;
             tray::create(&handle)?;
             gamemode::install(&handle);
@@ -66,6 +72,11 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() == pet_window::LABEL
+                && let WindowEvent::DragDrop(drag) = event
+            {
+                dropzone::on_pet_drag(window.app_handle(), drag);
+            }
             if window.label() == pet_window::LABEL
                 && let WindowEvent::Focused(focused) = event
             {
@@ -95,6 +106,11 @@ fn main() {
             commands::chat_new,
             commands::set_chat_folder,
             commands::js_log,
+            commands::chat_remove_attachment,
+            commands::run_action,
+            commands::offer_action,
+            commands::health_clear,
+            commands::default_quick_actions,
             commands::drag_start,
             commands::dismiss_toast,
             commands::pet_hide,

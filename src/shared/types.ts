@@ -27,12 +27,31 @@ export interface Toast {
   project: string;
 }
 
+export interface Offer {
+  kind: "clipboardError" | "failingChecks";
+  title: string;
+  detail: string;
+  project: string;
+}
+
+export interface ActionView {
+  id: string;
+  label: string;
+}
+
+export interface Attachment {
+  name: string;
+  path: string;
+}
+
 export interface ChatView {
   enabled: boolean;
   busy: boolean;
   reply: string;
   activity: string;
   error: string | null;
+  title: string;
+  attachments: Attachment[];
   project: string;
   projectPath: string;
   /** chosen = from Settings, recent = your latest Claude Code session's folder */
@@ -46,8 +65,11 @@ export interface PetView {
   status: StatusView | null;
   permission: PermView | null;
   toast: Toast | null;
+  offer: Offer | null;
   chat: ChatView;
   chatOpen: boolean;
+  dropHover: boolean;
+  quickActions: ActionView[];
   followMouse: boolean;
   hooksInstalled: boolean;
   gameActive: boolean;
@@ -68,6 +90,17 @@ export interface Settings {
   permissions: { enabled: boolean; timeoutSecs: number };
   chat: { enabled: boolean; projectDir: string; mode: ChatMode; keepConversation: boolean; claudePath: string };
   gameMode: boolean;
+  quickActions: { enabled: boolean; actions: QuickAction[] };
+  dropFiles: boolean;
+  errorWatcher: boolean;
+  health: boolean;
+}
+
+export interface QuickAction {
+  id: string;
+  label: string;
+  prompt: string;
+  readOnly: boolean;
 }
 
 export interface MonitorInfo {

@@ -13,6 +13,74 @@ pub struct Settings {
     pub chat: ChatSettings,
     /// Hide the pet while a fullscreen app or game runs.
     pub game_mode: bool,
+    /// Right-click menu with your quick actions.
+    pub quick_actions: QuickActionSettings,
+    /// Drop files on Glowby to send them to Claude Code.
+    pub drop_files: bool,
+    /// Opt-in: notice errors you copy to the clipboard (processed locally only).
+    pub error_watcher: bool,
+    /// Look sick while tests or builds fail.
+    pub health: bool,
+}
+
+/// One entry in the right-click menu. The prompt may use placeholders:
+/// {last_error}, {project}, {today}.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct QuickAction {
+    pub id: String,
+    pub label: String,
+    pub prompt: String,
+    /// Only read and explain: Glowby blocks file edits for this action.
+    pub read_only: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default, rename_all = "camelCase")]
+pub struct QuickActionSettings {
+    pub enabled: bool,
+    pub actions: Vec<QuickAction>,
+}
+
+impl Default for QuickActionSettings {
+    fn default() -> Self {
+        Self { enabled: true, actions: default_quick_actions() }
+    }
+}
+
+pub fn default_quick_actions() -> Vec<QuickAction> {
+    let action = |id: &str, label: &str, read_only: bool, prompt: &str| QuickAction {
+        id: id.into(),
+        label: label.into(),
+        prompt: prompt.into(),
+        read_only,
+    };
+    vec![
+        action(
+            "explain-error",
+            "Explain the last error",
+            true,
+            "Explain the last error in this project in plain language: what went wrong, why it happened, and the smallest fix. Don't change any files.\n\n{last_error}",
+        ),
+        action(
+            "run-and-fix",
+            "Run my project and fix what breaks",
+            false,
+            "Find out how this project is built and run (README, package.json, Cargo.toml, Makefile, …). Run it. If something breaks, fix it with the smallest change that works, run it again to confirm, then summarize what you changed.",
+        ),
+        action(
+            "commit",
+            "Commit my work with a good message",
+            false,
+            "Look at my uncommitted changes (git status and git diff). Commit them with a clear message: a short summary line, then a few lines on what changed and why. Don't push, and don't commit secrets or build output.",
+        ),
+        action(
+            "today",
+            "What did I change today?",
+            true,
+            "Summarize what changed in this project today ({today}): commits since midnight (git log) plus any uncommitted changes. Group related changes and keep it short.",
+        ),
+    ]
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -69,6 +137,10 @@ impl Default for Settings {
             permissions: PermissionSettings::default(),
             chat: ChatSettings::default(),
             game_mode: true,
+            quick_actions: QuickActionSettings::default(),
+            drop_files: true,
+            error_watcher: false,
+            health: true,
         }
     }
 }
@@ -110,6 +182,16 @@ impl Settings {
     pub fn sanitized(mut self) -> Self {
         self.pet.position = self.pet.position.clamp(0.0, 1.0);
         self.permissions.timeout_secs = self.permissions.timeout_secs.clamp(5, 540);
+        let mut seen = std::collections::HashSet::new();
+        self.quick_actions.actions.truncate(20);
+        for (i, action) in self.quick_actions.actions.iter_mut().enumerate() {
+            action.label = action.label.trim().chars().take(60).collect();
+            action.prompt = action.prompt.chars().take(4000).collect();
+            if action.id.trim().is_empty() || !seen.insert(action.id.clone()) {
+                action.id = format!("action-{i}-{}", seen.len());
+                seen.insert(action.id.clone());
+            }
+        }
         self
     }
 }

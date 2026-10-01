@@ -31,6 +31,7 @@ function setVisible(show: boolean) {
     requestAnimationFrame(() => stage.classList.add("shown"));
   } else {
     stage.classList.remove("shown");
+    bubble.onHidden();
     window.setTimeout(() => {
       if (!visible) renderer.stop(); // fully paused while hidden
     }, 300);
@@ -87,8 +88,9 @@ window.addEventListener("pointerup", (e) => {
   press = null;
   if (wasClick) bubble.toggleChat();
 });
-// No browser context menu. (Right-click will open quick actions in Phase 2.)
+// Right-click Glowby = quick actions. No browser context menu anywhere.
 window.addEventListener("contextmenu", (e) => e.preventDefault());
+canvas.addEventListener("contextmenu", () => bubble.toggleMenu());
 
 // ---- events from Rust ----
 void listen<PetView>("pet://view", (e) => apply(e.payload));

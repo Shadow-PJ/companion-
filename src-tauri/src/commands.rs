@@ -4,9 +4,9 @@
 use crate::hooks_installer::{self, HooksStatus, Preview};
 use crate::pet_window::{self, MonitorInfo};
 use crate::sessions::Mood;
-use crate::settings::Settings;
+use crate::settings::{QuickAction, Settings};
 use crate::state::{self, AppState, PetView, Rect, lock};
-use crate::{chat, gamemode, pipe_server, tray};
+use crate::{actions, chat, error_watch, gamemode, pipe_server, tray};
 use glowby_protocol::HookReply;
 use serde::Serialize;
 use std::time::{Duration, Instant};
@@ -59,7 +59,38 @@ pub fn js_log(message: String) {
 
 #[tauri::command]
 pub async fn chat_send(app: AppHandle, text: String) -> Result<(), String> {
-    chat::send(app, text).await
+    let title = crate::sessions::shorten(text.trim(), 90);
+    chat::send(app, chat::ChatRequest { message: text, title, read_only: false }).await
+}
+
+#[tauri::command]
+pub fn chat_remove_attachment(app: AppHandle, index: usize) {
+    chat::remove_attachment(&app, index);
+    state::publish(&app);
+}
+
+/// A quick action from the right-click menu.
+#[tauri::command]
+pub fn run_action(app: AppHandle, id: String) -> Result<(), String> {
+    actions::run_action(&app, &id)
+}
+
+/// "Fix it" / "Explain" / "Dismiss" on an offer bubble.
+#[tauri::command]
+pub fn offer_action(app: AppHandle, choice: String) {
+    actions::offer_choice(&app, &choice);
+}
+
+#[tauri::command]
+pub fn health_clear(app: AppHandle) {
+    lock(&app.state::<AppState>().health).clear();
+    actions::save_health(&app);
+    state::publish(&app);
+}
+
+#[tauri::command]
+pub fn default_quick_actions() -> Vec<QuickAction> {
+    crate::settings::default_quick_actions()
 }
 
 #[tauri::command]
@@ -150,6 +181,10 @@ pub fn save_settings(app: AppHandle, settings: Settings) -> Settings {
     if before.game_mode != saved.game_mode {
         tray::sync_game_mode(&app, saved.game_mode);
         gamemode::refresh(&app);
+    }
+    if before.error_watcher != saved.error_watcher {
+        error_watch::apply(&app, saved.error_watcher);
+        crate::applog::line(format!("error watcher {}", if saved.error_watcher { "on" } else { "off" }));
     }
     state::invalidate_status_line(&app);
     state::publish(&app);

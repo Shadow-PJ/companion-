@@ -10,16 +10,16 @@ const app = document.getElementById("app")!;
 let settings: Settings;
 let saveTimer = 0;
 
+/// Debounced auto-save. The page's `settings` object stays the source of truth
+/// (the editors hold references into it), so we don't replace it with Rust's copy.
 function save() {
   window.clearTimeout(saveTimer);
-  saveTimer = window.setTimeout(async () => {
-    settings = await invoke<Settings>("save_settings", { settings });
-  }, 250);
+  saveTimer = window.setTimeout(() => void invoke<Settings>("save_settings", { settings }), 250);
 }
 
 // ---------- small building blocks ----------
 
-function section(title: string, intro?: string, ...body: (Node | null)[]) {
+function section(title: string, intro?: string | null, ...body: (Node | null)[]) {
   return el("section", { class: "card" }, el("h2", { text: title }), intro ? el("p", { class: "intro", text: intro }) : null, ...body);
 }
 
@@ -228,6 +228,105 @@ function chatSection(info: AppInfo) {
   );
 }
 
+function quickActionsSection() {
+  const list = el("div", { class: "qa-list" });
+
+  function renderList() {
+    list.replaceChildren(
+      ...settings.quickActions.actions.map((action, index) => {
+        const label = el("input", { type: "text", class: "text", value: action.label, maxlength: 60, placeholder: "Menu label" });
+        label.addEventListener("input", () => {
+          action.label = label.value;
+          save();
+        });
+        const prompt = el("textarea", { class: "text prompt", rows: 3, maxlength: 4000, placeholder: "What should Claude do?" });
+        prompt.value = action.prompt;
+        prompt.addEventListener("input", () => {
+          action.prompt = prompt.value;
+          save();
+        });
+        const readOnly = el("input", { type: "checkbox" });
+        readOnly.checked = action.readOnly;
+        readOnly.addEventListener("change", () => {
+          action.readOnly = readOnly.checked;
+          save();
+        });
+        const move = (delta: number) => () => {
+          const list = settings.quickActions.actions;
+          const target = index + delta;
+          if (target < 0 || target >= list.length) return;
+          [list[index], list[target]] = [list[target], list[index]];
+          save();
+          renderList();
+        };
+        return el(
+          "div",
+          { class: "qa-item" },
+          el(
+            "div",
+            { class: "inline" },
+            label,
+            el("label", { class: "check", title: "Glowby blocks file edits for this action" }, readOnly, "Read only"),
+            button("↑", "ghost", move(-1), "Move up"),
+            button("↓", "ghost", move(1), "Move down"),
+            button("Delete", "ghost danger", () => {
+              settings.quickActions.actions.splice(index, 1);
+              save();
+              renderList();
+            }),
+          ),
+          prompt,
+        );
+      }),
+    );
+  }
+
+  const add = button("Add action", "", () => {
+    settings.quickActions.actions.push({ id: crypto.randomUUID(), label: "New action", prompt: "", readOnly: false });
+    save();
+    renderList();
+  });
+  const reset = button("Reset to defaults", "ghost", async () => {
+    settings.quickActions.actions = await invoke("default_quick_actions");
+    save();
+    renderList();
+  });
+  renderList();
+  return section(
+    "Quick actions",
+    "Right-click Glowby to run these in your project. In a prompt, {last_error} becomes the last error Glowby saw, {project} the project name and {today} today's date.",
+    toggle("Quick actions menu", null, () => settings.quickActions.enabled, (v) => (settings.quickActions.enabled = v)),
+    list,
+    el("div", { class: "actions" }, add, reset),
+  );
+}
+
+function helpersSection() {
+  return section(
+    "Helpers",
+    null,
+    toggle(
+      "Drop files on Glowby",
+      "Drag a file to the top edge where Glowby lives, drop it on him, then say what to do with it.",
+      () => settings.dropFiles,
+      (v) => (settings.dropFiles = v),
+    ),
+    toggle(
+      "Error watcher",
+      "Off by default. When on, Glowby checks text you copy and offers help if it looks like an error. Checked on this PC only; anything that isn't an error is ignored and forgotten right away, and nothing is logged. Content password managers mark as private is skipped.",
+      () => settings.errorWatcher,
+      (v) => (settings.errorWatcher = v),
+    ),
+    toggle(
+      "Look sick while tests or builds fail",
+      "Glowby notices when Claude runs your tests or build. It stays sick until they pass again.",
+      () => settings.health,
+      (v) => (settings.health = v),
+    ),
+    el("div", { class: "actions" }, button("I'm fine now (clear sick state)", "ghost", () => void invoke("health_clear"))),
+  );
+}
+
 function performanceSection(info: AppInfo) {
   return section(
     "Performance",
@@ -256,7 +355,7 @@ function privacySection(info: AppInfo) {
     "Glowby sends nothing anywhere. Your settings, backups, and chat session IDs live only in this folder. (The chat itself talks to Anthropic through Claude Code, as Claude Code always does.)",
     el("div", { class: "inline" }, el("code", { text: info.dataDir }), button("Open data folder", "ghost", () => void invoke("open_folder", { which: "data" }))),
     info.pipeError ? el("p", { class: "message error", text: info.pipeError }) : null,
-    el("p", { class: "hint", text: `Version ${info.version}. Coming in later phases: quick actions, error watcher, sounds, quests, briefing, learn mode, GitHub check, squad mode.` }),
+    el("p", { class: "hint", text: `Version ${info.version}. Coming in later phases: progression, sounds, quests, briefing, learn mode, GitHub check, squad mode.` }),
   );
 }
 
@@ -275,6 +374,8 @@ async function main() {
     petSection(monitors),
     permissionsSection(),
     chatSection(info),
+    quickActionsSection(),
+    helpersSection(),
     performanceSection(info),
     moodsSection(),
     privacySection(info),

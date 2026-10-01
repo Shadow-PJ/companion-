@@ -172,3 +172,90 @@ needed), then checked on screen that transparency still worked before keeping th
   appears when it's least needed isn't a hint.
 * **The chat box was hidden until a folder was set.** Now it uses your latest Claude
   Code project by default, and the folder chip in the bubble opens a folder picker.
+
+## Phase 2: helpful actions
+
+### 1. Quick actions are prompt templates
+
+A quick action is just a label plus a prompt with placeholders: `{last_error}`,
+`{project}`, `{today}`. Glowby fills them in and sends the result through the same chat
+pipeline as your typed messages. "Last error" is whatever Glowby noticed most recently:
+a failed command from a Claude session, failing tests, or an error you copied. It is
+kept in memory only.
+
+Read-only actions (Explain, What did I change today?) are enforced, not just requested:
+while one runs, the chat's PreToolUse gate *denies* Edit/Write tools. Plain read
+commands like `git log` or `git diff --stat` are allowed without asking. Anything with
+`;`, `&`, `|`, `>`, `<`, `` ` `` or `$` is never auto-allowed, because those characters
+let one "harmless" command smuggle in another.
+
+### 2. Drag and drop on Windows uses COM
+
+While you drag a file, the drag owns the mouse ("capture"), so other windows get no
+mouse messages and the hover strip can't notice you. Windows' drag and drop goes
+through **OLE**: windows register a *drop target* (a COM object implementing
+`IDropTarget`), and Windows calls its `DragEnter`, `DragOver`, `DragLeave` and `Drop`
+methods. Glowby's strip registers one that accepts nothing (`DROPEFFECT_NONE`) but
+summons Glowby in `DragEnter`. The actual drop then lands on the pet window, where Tauri
+turns it into a `DragDrop` event with the file paths. Files outside the project are
+made readable for Claude with `claude --add-dir <folder>`.
+
+COM in Rust: the `windows` crate's `#[implement(IDropTarget)]` macro generates the COM
+plumbing (reference counting, interface tables); we just write the four methods.
+
+### 3. The clipboard watcher: event-driven and private
+
+`AddClipboardFormatListener` asks Windows to send `WM_CLIPBOARDUPDATE` to a window on
+every clipboard change. No polling, and nothing at all happens while the setting is off,
+because the listener isn't registered. On a change Glowby:
+
+1. waits 150 ms (the copying app may still be writing),
+2. skips the clipboard entirely if it carries a "private" marker that password managers
+   set (`ExcludeClipboardContentFromMonitorProcessing`, `CanIncludeInClipboardHistory`),
+3. reads the text (max 20,000 characters) and runs a **rule-based classifier**: strong
+   signals (`Traceback (most recent call last)`, `panicked at`, `npm ERR!`, …) or at least
+   two weaker ones (an `…Error:` line, `error TS1234`, a stack-frame line like
+   `at App (src/App.tsx:12:20)`, …),
+4. forgets the text immediately unless it's an error.
+
+Why rules and not an AI model? It runs instantly, offline, costs nothing, and you can
+read exactly what it does. The tests list errors it must catch and normal text it must
+ignore.
+
+### 4. "Sick until tests pass" from hook events
+
+We captured real hook payloads first instead of trusting the docs:
+
+* success: `PostToolUse` with `tool_response: {stdout, stderr, interrupted}`
+* failure: `PostToolUseFailure` with `error: "Exit code 1 …"` and `is_interrupt`
+
+Glowby classifies the command (`cargo test`, `npm run build`, `pytest`, …) by matching
+whole words, so `python makedirs.py` isn't mistaken for `make`. Failures are stored per
+project in `health.json`, so the sick state survives a restart. A passing run of the same
+kind clears it, and passing tests also clear a build failure (they had to build first).
+
+### 5. The bug that taught the most: waiting for end-of-file
+
+Testing Phase 2 revealed 49 `glowby-hook.exe` processes that never exited. The hook read
+stdin *until end-of-file*, but for async hooks Claude Code sometimes never closes stdin,
+so those hooks waited forever. (Claude Code wasn't affected, because async hooks don't
+block it, but the processes piled up.)
+
+Fixes:
+
+* read exactly **one JSON value** and stop at its closing brace (`serde_json`'s stream
+  deserializer), so the hook never needs end-of-file;
+* a **watchdog** thread: whatever happens, a hook ends itself after 15 s (or the
+  maximum permission wait plus 15 s);
+* a test whose input *panics* if anyone tries to read past the object.
+
+Lesson: when you design a protocol, decide how a message *ends*. "When the stream
+closes" depends on the other side behaving perfectly. "When the JSON object closes" is
+under your control.
+
+### 6. Updating a program that is running
+
+Windows won't overwrite or delete an `.exe` while it runs, and Claude Code starts the
+hook on every tool call. But Windows **does** allow *renaming* a running program. So the
+updater moves the old copy aside (`glowby-hook.old-….exe`), puts the new one in place,
+and deletes old copies on a later start.

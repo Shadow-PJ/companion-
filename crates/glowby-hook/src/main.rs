@@ -26,7 +26,18 @@ const MAX_STDIN_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_STRING_BYTES: usize = 4000;
 const ERROR_PIPE_BUSY: i32 = 231;
 
+/// Even if something blocks unexpectedly, a hook process never lives longer than this.
+const WATCHDOG_EXTRA: Duration = Duration::from_secs(15);
+
 fn main() {
+    // Watchdog: whatever happens, this process ends itself (exit 0 = no opinion).
+    let waits_for_answer = std::env::args().nth(1).is_some_and(|e| e == "PermissionRequest" || e == CHAT_GATE_EVENT);
+    let limit = if waits_for_answer { MAX_DECISION_WAIT + WATCHDOG_EXTRA } else { WATCHDOG_EXTRA };
+    std::thread::spawn(move || {
+        std::thread::sleep(limit);
+        std::process::exit(0);
+    });
+
     // catch_unwind turns any unexpected panic into "no output", never a crash code.
     let output = std::panic::catch_unwind(run).ok().flatten();
     if let Some(text) = output {
@@ -51,15 +62,10 @@ fn run() -> Option<String> {
     };
     let wants_reply = event == "PermissionRequest" || event == CHAT_GATE_EVENT;
 
-    let mut raw = String::new();
-    if let Err(e) = std::io::stdin().take(MAX_STDIN_BYTES).read_to_string(&mut raw) {
-        debug(&format!("couldn't read stdin: {e}"));
-        return None;
-    }
-    let mut payload: Value = match serde_json::from_str(raw.trim_start_matches('\u{feff}')) {
+    let mut payload = match read_one_json_value() {
         Ok(v) => v,
         Err(e) => {
-            debug(&format!("stdin isn't JSON: {e}"));
+            debug(&format!("couldn't read the event from stdin: {e}"));
             return None;
         }
     };
@@ -92,6 +98,22 @@ fn run() -> Option<String> {
     }
     let reply = wait_for_reply(pipe)?;
     render_reply(&event, reply)
+}
+
+/// Reads exactly ONE JSON object from stdin and stops at its closing brace.
+/// We must not wait for end-of-file: Claude Code may keep stdin open after
+/// writing the event, and a hook waiting for EOF would then hang forever.
+fn read_one_json_value() -> Result<Value, String> {
+    let mut input = std::io::stdin().lock();
+    // Skip a UTF-8 byte-order mark (Windows PowerShell adds one when piping).
+    if input.fill_buf().map_err(|e| e.to_string())?.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        input.consume(3);
+    }
+    serde_json::Deserializer::from_reader(input.take(MAX_STDIN_BYTES))
+        .into_iter::<Value>()
+        .next()
+        .ok_or("stdin was empty")?
+        .map_err(|e| format!("stdin isn't JSON: {e}"))
 }
 
 /// Opens the named pipe. If Glowby isn't running the pipe doesn't exist and we
@@ -173,6 +195,21 @@ fn render_reply(event: &str, reply: HookReply) -> Option<String> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn one_json_value_is_read_without_waiting_for_eof() {
+        // A reader that would block forever after the object = what an unclosed stdin looks like.
+        struct NeverEnds(std::io::Cursor<Vec<u8>>);
+        impl Read for NeverEnds {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let n = self.0.read(buf)?;
+                if n == 0 { panic!("hook waited for end-of-file") } else { Ok(n) }
+            }
+        }
+        let input = NeverEnds(std::io::Cursor::new(br#"{"session_id":"x","n":1}"#.to_vec()));
+        let value = serde_json::Deserializer::from_reader(input).into_iter::<Value>().next().unwrap().unwrap();
+        assert_eq!(value["n"], 1);
+    }
+
     fn parse(text: Option<String>) -> Value {
         serde_json::from_str(&text.expect("expected output")).unwrap()
     }
@@ -206,25 +243,31 @@ mod tests {
     }
 
     #[test]
-    fn long_strings_are_trimmed_on_char_boundaries() {
-        let mut v = json!({ "content": "é".repeat(5000) });
+    fn long_strings_keep_start_and_end_on_char_boundaries() {
+        let text = format!("START{}END", "é".repeat(5000));
+        let mut v = json!({ "content": text });
         trim_long_strings(&mut v);
         let s = v["content"].as_str().unwrap();
-        assert!(s.len() < MAX_STRING_BYTES + 20);
-        assert!(s.ends_with("[trimmed]"));
+        assert!(s.len() < MAX_STRING_BYTES + 40);
+        assert!(s.starts_with("START") && s.ends_with("END") && s.contains("[trimmed]"));
     }
 }
 
-/// Keeps pipe traffic and Glowby's memory small: the pet only needs a preview.
+/// Keeps pipe traffic and Glowby's memory small. Keeps the START and the END of
+/// long strings: errors and test summaries are usually at the end of the output.
 fn trim_long_strings(value: &mut Value) {
     match value {
         Value::String(s) if s.len() > MAX_STRING_BYTES => {
-            let mut cut = MAX_STRING_BYTES;
-            while !s.is_char_boundary(cut) {
-                cut -= 1;
+            let half = MAX_STRING_BYTES / 2;
+            let mut head_end = half;
+            while !s.is_char_boundary(head_end) {
+                head_end -= 1;
             }
-            s.truncate(cut);
-            s.push_str(" …[trimmed]");
+            let mut tail_start = s.len() - half;
+            while !s.is_char_boundary(tail_start) {
+                tail_start += 1;
+            }
+            *s = format!("{}\n…[trimmed]…\n{}", &s[..head_end], &s[tail_start..]);
         }
         Value::Array(items) => items.iter_mut().for_each(trim_long_strings),
         Value::Object(map) => map.values_mut().for_each(trim_long_strings),

@@ -24,6 +24,18 @@ For development with live reload of the web parts: `npm run dev`.
 3. Restart any running Claude Code sessions.
 4. Hover the top edge of your screen (where the thin strip is) to call Glowby out.
 
+## Using Glowby
+
+* **Hover** the faint line at the top edge: Glowby slides out with the live status.
+* **Click** Glowby to chat with Claude Code in your project. The folder chip picks the project.
+* **Right-click** Glowby for quick actions (edit them in Settings → Quick actions).
+* **Drag a file** to the top edge, drop it on Glowby, then pick Explain / Review / Fix /
+  Summarize or type an instruction.
+* **Error watcher** (Settings → Helpers, off by default): copy an error message and Glowby
+  offers to fix or explain it.
+* **Sick?** Your tests or build are failing. Glowby gets better when they pass, or click
+  Dismiss.
+
 ## Testing without Claude Code
 
 `scripts\fake-event.ps1` runs the real `glowby-hook.exe` with a pretend event:
@@ -60,7 +72,11 @@ Counts glowby.exe plus all of its WebView2 helper processes.
 * `settings.json` is changed only after you review a diff. It's backed up first, written
   atomically, and verified. **Uninstall hooks** removes only Glowby's entries.
 * No telemetry. Data lives in `%APPDATA%\dev.glowby.app` (settings, backups, chat
-  session IDs) and `%LOCALAPPDATA%\Glowby\bin` (the hook program).
+  session IDs, test/build health) and `%LOCALAPPDATA%\Glowby\bin` (the hook program).
+* Every hook process ends itself within 15 s (permission questions: their timeout plus
+  15 s), even if Claude Code never closes its input.
+* The error watcher is opt-in, checks text locally, forgets non-errors immediately,
+  never logs clipboard content, and skips content password managers mark as private.
 * The hook pipe is locked to your Windows account. The hook also checks that whoever
   is listening runs as you before it sends anything.
 

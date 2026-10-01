@@ -84,6 +84,9 @@ fn bundled_hook_path() -> Option<PathBuf> {
 /// Copies glowby-hook.exe next to Glowby into %LOCALAPPDATA%\Glowby\bin (if changed).
 pub fn ensure_hook_binary(app: &AppHandle) -> Result<PathBuf, String> {
     let target = installed_hook_path(app);
+    if let Some(dir) = target.parent() {
+        remove_old_copies(dir);
+    }
     let Some(source) = bundled_hook_path() else {
         return if target.is_file() {
             Ok(target)
@@ -103,14 +106,33 @@ pub fn ensure_hook_binary(app: &AppHandle) -> Result<PathBuf, String> {
     }
     let tmp = target.with_extension("exe.new");
     std::fs::copy(&source, &tmp).map_err(|e| format!("Couldn't copy the hook program: {e}"))?;
-    match std::fs::rename(&tmp, &target) {
-        Ok(()) => Ok(target),
-        // A hook may be running right now (file in use). The old copy still works.
-        Err(_) if target.is_file() => {
-            let _ = std::fs::remove_file(&tmp);
-            Ok(target)
+    if std::fs::rename(&tmp, &target).is_ok() {
+        return Ok(target);
+    }
+    // Claude Code is probably running a hook right now, so the file is in use and
+    // can't be overwritten. Windows does allow RENAMING a running program, so we
+    // move the old copy aside (deleted on a later start) and put the new one in place.
+    let aside = target.with_file_name(format!("glowby-hook.old-{}.exe", chrono::Local::now().format("%H%M%S%3f")));
+    if std::fs::rename(&target, &aside).is_ok() && std::fs::rename(&tmp, &target).is_ok() {
+        crate::applog::line("hook program updated (old copy was in use and moved aside)");
+        return Ok(target);
+    }
+    let _ = std::fs::remove_file(&tmp);
+    if target.is_file() {
+        crate::applog::line("couldn't update the hook program now; the previous copy keeps working");
+        Ok(target)
+    } else {
+        Err("Couldn't install the hook program.".into())
+    }
+}
+
+/// Deletes copies moved aside during earlier updates (skips any still running).
+fn remove_old_copies(dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        if entry.file_name().to_string_lossy().starts_with("glowby-hook.old-") {
+            let _ = std::fs::remove_file(entry.path());
         }
-        Err(e) => Err(format!("Couldn't install the hook program: {e}")),
     }
 }
 

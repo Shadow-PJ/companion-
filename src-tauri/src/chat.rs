@@ -31,7 +31,27 @@ pub struct ChatState {
     pub reply: String,
     pub activity: String,
     pub error: Option<String>,
+    /// What you asked (or the quick action's name), shown above the reply.
+    pub title: String,
+    /// Files you dropped on Glowby, sent with the next message.
+    pub attachments: Vec<PathBuf>,
+    /// The running request may only read: the chat gate blocks file edits.
+    pub read_only: bool,
     cancel: Option<oneshot::Sender<()>>,
+}
+
+/// One message to Claude Code from the chat box, a quick action, or an offer.
+pub struct ChatRequest {
+    pub message: String,
+    pub title: String,
+    pub read_only: bool,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentView {
+    pub name: String,
+    pub path: String,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -42,12 +62,59 @@ pub struct ChatView {
     pub reply: String,
     pub activity: String,
     pub error: Option<String>,
+    pub title: String,
+    pub attachments: Vec<AttachmentView>,
     pub project: String,
     pub project_path: String,
     /// "chosen" (from Settings), "recent" (your last Claude Code session) or "none".
     pub folder_source: &'static str,
     pub has_project: bool,
     pub has_conversation: bool,
+}
+
+/// Files dropped on Glowby wait here until you send a message.
+pub fn attach(app: &AppHandle, paths: Vec<PathBuf>) {
+    let state = app.state::<AppState>();
+    let mut chat = lock(&state.chat);
+    for path in paths {
+        if !chat.attachments.contains(&path) && chat.attachments.len() < 10 {
+            chat.attachments.push(path);
+        }
+    }
+    chat.reply.clear();
+    chat.error = None;
+    chat.title.clear();
+}
+
+pub fn remove_attachment(app: &AppHandle, index: usize) {
+    let state = app.state::<AppState>();
+    let mut chat = lock(&state.chat);
+    if index < chat.attachments.len() {
+        chat.attachments.remove(index);
+    }
+}
+
+/// The prompt text for attachments, and the extra folders Claude may read
+/// (`--add-dir`) for files that live outside the project.
+fn attachment_context(attachments: &[PathBuf], project_dir: &str) -> (String, Vec<PathBuf>) {
+    if attachments.is_empty() {
+        return (String::new(), Vec::new());
+    }
+    let project = project_dir.to_lowercase();
+    let mut text = String::from("\n\nFiles I'm sharing with you:\n");
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    for path in attachments {
+        let is_dir = path.is_dir();
+        text.push_str(&format!("- {}{}\n", path.display(), if is_dir { " (folder)" } else { "" }));
+        let dir = if is_dir { Some(path.clone()) } else { path.parent().map(Path::to_path_buf) };
+        if let Some(dir) = dir
+            && !dir.to_string_lossy().to_lowercase().starts_with(&project)
+            && !dirs.contains(&dir)
+        {
+            dirs.push(dir);
+        }
+    }
+    (text, dirs)
 }
 
 /// The folder the chat works in: the one you chose, otherwise the folder of
@@ -73,6 +140,15 @@ pub fn view(state: &AppState, settings: &Settings) -> ChatView {
         reply: chat.reply.clone(),
         activity: chat.activity.clone(),
         error: chat.error.clone(),
+        title: chat.title.clone(),
+        attachments: chat
+            .attachments
+            .iter()
+            .map(|p| AttachmentView {
+                name: p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| p.display().to_string()),
+                path: p.display().to_string(),
+            })
+            .collect(),
         project: crate::sessions::project_name(&dir),
         has_project: !dir.is_empty(),
         project_path: dir,
@@ -148,7 +224,23 @@ fn write_chat_hooks(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-pub async fn send(app: AppHandle, message: String) -> Result<(), String> {
+/// Sends a request and waits for the reply. Problems are shown in the chat bubble.
+pub async fn send(app: AppHandle, request: ChatRequest) -> Result<(), String> {
+    let result = send_inner(&app, request).await;
+    if let Err(e) = &result {
+        let state = app.state::<AppState>();
+        let mut chat = lock(&state.chat);
+        if !chat.busy {
+            chat.error = Some(e.clone());
+        }
+        drop(chat);
+        state::publish(&app);
+    }
+    result
+}
+
+async fn send_inner(app: &AppHandle, request: ChatRequest) -> Result<(), String> {
+    let app = app.clone();
     let state = app.state::<AppState>();
     let settings = state.settings();
     if !settings.chat.enabled {
@@ -158,7 +250,7 @@ pub async fn send(app: AppHandle, message: String) -> Result<(), String> {
     if dir.is_empty() {
         return Err("Choose a project folder first (click the folder chip).".into());
     }
-    let message = message.trim().to_string();
+    let message = request.message.trim().to_string();
     if message.is_empty() {
         return Ok(());
     }
@@ -168,7 +260,7 @@ pub async fn send(app: AppHandle, message: String) -> Result<(), String> {
     let resume = if settings.chat.keep_conversation { lock(&state.chat_sessions).get(&dir).cloned() } else { None };
 
     let (cancel_tx, mut cancel_rx) = oneshot::channel();
-    {
+    let attachments = {
         let mut chat = lock(&state.chat);
         if chat.busy {
             return Err("Still waiting for the last reply.".into());
@@ -176,10 +268,15 @@ pub async fn send(app: AppHandle, message: String) -> Result<(), String> {
         chat.busy = true;
         chat.reply.clear();
         chat.error = None;
+        chat.title = crate::sessions::shorten(&request.title, 90);
+        chat.read_only = request.read_only;
         chat.activity = "Thinking…".into();
         chat.cancel = Some(cancel_tx);
-    }
+        std::mem::take(&mut chat.attachments)
+    };
     state::publish(&app);
+    let (attachment_text, extra_dirs) = attachment_context(&attachments, &dir);
+    let message = format!("{message}{attachment_text}");
 
     let mut cmd = tokio::process::Command::new(&claude);
     cmd.args(["-p", "--output-format", "stream-json", "--verbose", "--settings"]).arg(&chat_hooks);
@@ -188,9 +285,13 @@ pub async fn send(app: AppHandle, message: String) -> Result<(), String> {
         ChatMode::ReadOnly => {
             cmd.args(["--permission-mode", "plan"]);
         }
-        ChatMode::AcceptEdits => {
+        ChatMode::AcceptEdits if !request.read_only => {
             cmd.args(["--permission-mode", "acceptEdits"]);
         }
+        ChatMode::AcceptEdits => {}
+    }
+    for extra in &extra_dirs {
+        cmd.arg("--add-dir").arg(extra);
     }
     if let Some(id) = &resume {
         cmd.args(["--resume", id]);
@@ -208,6 +309,7 @@ pub async fn send(app: AppHandle, message: String) -> Result<(), String> {
     {
         let mut chat = lock(&state.chat);
         chat.busy = false;
+        chat.read_only = false;
         chat.cancel = None;
         chat.activity.clear();
         match &outcome {
@@ -360,7 +462,23 @@ pub fn new_conversation(app: &AppHandle) {
         if !chat.busy {
             chat.reply.clear();
             chat.error = None;
+            chat.title.clear();
         }
     }
     state::publish(app);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn files_outside_the_project_get_add_dir() {
+        let tmp = std::env::temp_dir();
+        let inside = PathBuf::from(r"C:\code\app\src\main.rs");
+        let outside = tmp.join("notes.txt");
+        let (text, dirs) = attachment_context(&[inside.clone(), outside.clone()], r"C:\code\app");
+        assert!(text.contains("main.rs") && text.contains("notes.txt"));
+        assert_eq!(dirs, vec![tmp]);
+    }
 }

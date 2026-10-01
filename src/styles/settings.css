@@ -273,6 +273,39 @@ code {
 .diff .gap {
   color: var(--muted);
 }
+.qa-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+.qa-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.qa-item .inline .text {
+  flex: 1;
+}
+.text.prompt {
+  width: 100%;
+  resize: vertical;
+  font: 13px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+}
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.btn.danger {
+  color: var(--error);
+}
 .message {
   margin-top: 10px;
   padding: 8px 12px;

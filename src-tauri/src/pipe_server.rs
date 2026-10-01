@@ -149,6 +149,14 @@ fn on_event(app: &AppHandle, envelope: &HookEnvelope) {
     let settings = state.settings();
     let project = crate::sessions::project_name(crate::sessions::str_field(&envelope.payload, "cwd").unwrap_or(""));
     let mut pop_out = false;
+    // Tests / builds: sick while failing, happy again when they pass.
+    if matches!(envelope.event.as_str(), "PostToolUse" | "PostToolUseFailure")
+        && let Some((kind, text)) = crate::actions::on_tool_result(app, &envelope.event, &envelope.payload)
+    {
+        state::toast(app, kind, text, project.clone(), 8);
+        let wanted = if kind == "failed" { settings.pet.show_on_attention } else { settings.pet.show_on_done };
+        pop_out |= wanted && !envelope.from_pet_chat;
+    }
     if !envelope.from_pet_chat {
         match attention {
             Some(crate::sessions::Attention::Done(text)) if settings.pet.show_on_done => {
@@ -186,10 +194,21 @@ fn begin_gate(app: &AppHandle, envelope: &HookEnvelope) -> Gate {
     }
     let tool = crate::sessions::str_field(&envelope.payload, "tool_name").unwrap_or("");
     let kind = if envelope.event == CHAT_GATE_EVENT {
-        let needs_ok = match settings.chat.mode {
-            ChatMode::ReadOnly => false,
-            ChatMode::Ask => !READ_ONLY_TOOLS.contains(&tool),
-            ChatMode::AcceptEdits => !READ_ONLY_TOOLS.contains(&tool) && !EDIT_TOOLS.contains(&tool),
+        let read_only_run = lock(&state.chat).read_only;
+        let command = envelope.payload.pointer("/tool_input/command").and_then(serde_json::Value::as_str).unwrap_or("");
+        // Plain read-only commands like `git log` don't need your OK.
+        if matches!(tool, "Bash" | "PowerShell") && crate::actions::is_safe_read_command(command) {
+            return Gate::Now(HookReply::Allow);
+        }
+        if read_only_run && EDIT_TOOLS.contains(&tool) {
+            return Gate::Now(HookReply::Deny {
+                message: "This quick action is read-only, so Glowby blocked file changes. Explain instead.".into(),
+            });
+        }
+        let needs_ok = match (read_only_run, settings.chat.mode) {
+            (true, _) | (false, ChatMode::Ask) => !READ_ONLY_TOOLS.contains(&tool),
+            (false, ChatMode::ReadOnly) => false,
+            (false, ChatMode::AcceptEdits) => !READ_ONLY_TOOLS.contains(&tool) && !EDIT_TOOLS.contains(&tool),
         };
         if !needs_ok {
             return Gate::Now(HookReply::Pass);

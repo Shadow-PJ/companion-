@@ -1132,6 +1132,8 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tokio",
+ "windows",
+ "windows-core",
  "windows-sys 0.61.2",
 ]
 

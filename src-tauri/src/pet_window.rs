@@ -306,7 +306,16 @@ fn start_cursor_loop(app: AppHandle, generation: u64) {
                     ui.drag = None;
                 }
                 let toast_active = ui.toast.as_ref().is_some_and(|(_, until)| *until > now);
-                let sticky = ui.chat_open || has_permission || toast_active || ui.preview.is_some() || dragging;
+                let offer_active = ui.offer.as_ref().is_some_and(|(_, until)| *until > now);
+                // A held mouse button usually means you're dragging a file over to Glowby.
+                let sticky = ui.chat_open
+                    || has_permission
+                    || toast_active
+                    || offer_active
+                    || ui.preview.is_some()
+                    || ui.drop_hover
+                    || dragging
+                    || primary_button_down();
                 let away_for = ui.last_inside.map(|t| now.duration_since(t)).unwrap_or_default();
                 should_hide = !sticky && away_for > HIDE_AFTER;
             }

@@ -3,7 +3,9 @@
 //! Locking rule (avoids deadlocks): take a lock, copy what you need, drop it,
 //! and only THEN call Win32 window functions or emit events.
 
+use crate::actions::{LastError, Offer};
 use crate::chat::{self, ChatState};
+use crate::health::Health;
 use crate::permissions::{PermView, Queue};
 use crate::sessions::{Mood, StatusView, Tracker};
 use crate::settings::{self, ChatSessions, Settings};
@@ -21,6 +23,7 @@ pub struct Paths {
     pub chat_sessions_file: PathBuf,
     pub backups_dir: PathBuf,
     pub chat_settings_file: PathBuf,
+    pub health_file: PathBuf,
 }
 
 pub struct AppState {
@@ -31,6 +34,8 @@ pub struct AppState {
     pub perms: Mutex<Queue>,
     pub ui: Mutex<Ui>,
     pub chat: Mutex<ChatState>,
+    pub health: Mutex<Health>,
+    pub last_error: Mutex<Option<LastError>>,
     timer: watch::Sender<Option<Instant>>,
     timer_rx: Mutex<Option<watch::Receiver<Option<Instant>>>>,
 }
@@ -84,6 +89,10 @@ pub struct Ui {
     pub pipe_error: Option<String>,
     /// First run during a game: open Settings when the game closes, not on top of it.
     pub settings_after_game: bool,
+    /// "That looks like an error" offer from the error watcher, until it expires.
+    pub offer: Option<(Offer, Instant)>,
+    /// A file is being dragged over Glowby.
+    pub drop_hover: bool,
     last_hot_color: Option<Option<(u32, u8)>>,
     last_tooltip: String,
 }
@@ -95,11 +104,21 @@ pub struct PetView {
     pub status: Option<StatusView>,
     pub permission: Option<PermView>,
     pub toast: Option<Toast>,
+    pub offer: Option<Offer>,
     pub chat: chat::ChatView,
     pub chat_open: bool,
+    pub drop_hover: bool,
+    pub quick_actions: Vec<ActionView>,
     pub follow_mouse: bool,
     pub hooks_installed: bool,
     pub game_active: bool,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ActionView {
+    pub id: String,
+    pub label: String,
 }
 
 /// Lock that survives a panic in another thread (a "poisoned" mutex).
@@ -114,10 +133,12 @@ impl AppState {
             chat_sessions_file: config_dir.join("chat-sessions.json"),
             backups_dir: config_dir.join("backups"),
             chat_settings_file: config_dir.join("chat-hooks.json"),
+            health_file: config_dir.join("health.json"),
             config_dir,
         };
         let loaded: Settings = settings::load_json(&paths.settings_file);
         let chat_sessions: ChatSessions = settings::load_json(&paths.chat_sessions_file);
+        let health: Health = settings::load_json(&paths.health_file);
         let (timer, timer_rx) = watch::channel(None);
         Self {
             settings: Mutex::new(loaded.sanitized()),
@@ -126,6 +147,8 @@ impl AppState {
             perms: Mutex::new(Queue::default()),
             ui: Mutex::new(Ui { click_through: true, ..Default::default() }),
             chat: Mutex::new(ChatState::default()),
+            health: Mutex::new(health),
+            last_error: Mutex::new(None),
             timer,
             timer_rx: Mutex::new(Some(timer_rx)),
             paths,
@@ -170,6 +193,7 @@ fn view_and_deadline(app: &AppHandle) -> (PetView, Option<Instant>) {
         (t.mood(now), t.status(now), t.next_change(now))
     };
     let chat_view = chat::view(&state, &settings);
+    let failing = if settings.health { lock(&state.health).latest().cloned() } else { None };
 
     let mut ui = lock(&state.ui);
     if ui.toast.as_ref().is_some_and(|(_, until)| *until <= now) {
@@ -178,23 +202,48 @@ fn view_and_deadline(app: &AppHandle) -> (PetView, Option<Instant>) {
     if ui.preview.is_some_and(|(_, until)| until <= now) {
         ui.preview = None;
     }
+    if ui.offer.as_ref().is_some_and(|(_, until)| *until <= now) {
+        ui.offer = None;
+    }
     let mut deadlines: Vec<Instant> = tracker_next.into_iter().collect();
     deadlines.extend(ui.toast.as_ref().map(|(_, until)| *until));
     deadlines.extend(ui.preview.map(|(_, until)| until));
+    deadlines.extend(ui.offer.as_ref().map(|(_, until)| *until));
+
+    // A copied error offer wins; otherwise failing tests/builds stay on offer until they pass.
+    let clipboard_offer = ui.offer.as_ref().map(|(o, _)| o.clone());
+    let offer = clipboard_offer.clone().or_else(|| {
+        failing.as_ref().map(|f| Offer {
+            kind: "failingChecks",
+            title: if f.kind == crate::health::CheckKind::Tests { "Tests are failing".into() } else { "The build is failing".into() },
+            detail: f.command.clone(),
+            project: crate::sessions::project_name(&f.project_dir),
+        })
+    });
 
     let mood = match ui.preview {
         Some((preview, _)) => preview,
-        None if has_perm => Mood::Alert,
-        None if chat_view.busy && tracked != Mood::Alert => Mood::Working,
+        None if ui.drop_hover => Mood::Happy,
+        None if has_perm || clipboard_offer.is_some() || tracked == Mood::Alert => Mood::Alert,
+        None if failing.is_some() => Mood::Sick,
+        None if chat_view.busy => Mood::Working,
         None => tracked,
+    };
+    let quick_actions = if settings.quick_actions.enabled {
+        settings.quick_actions.actions.iter().map(|a| ActionView { id: a.id.clone(), label: a.label.clone() }).collect()
+    } else {
+        Vec::new()
     };
     let view = PetView {
         mood,
         status,
         permission,
         toast: ui.toast.as_ref().map(|(t, _)| t.clone()),
+        offer,
         chat: chat_view,
         chat_open: ui.chat_open,
+        drop_hover: ui.drop_hover,
+        quick_actions,
         follow_mouse: settings.pet.follow_mouse,
         hooks_installed: ui.hooks_installed,
         game_active: ui.game_active,
