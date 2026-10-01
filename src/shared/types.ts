@@ -63,10 +63,48 @@ export interface ProgressInfo {
 }
 
 export interface Offer {
-  kind: "clipboardError" | "failingChecks" | "break";
+  kind: "clipboardError" | "failingChecks" | "break" | "ci";
   title: string;
   detail: string;
   project: string;
+  url: string | null;
+}
+
+export interface QuestView {
+  kind: string;
+  label: string;
+  progress: number;
+  target: number;
+  done: boolean;
+  xp: number;
+}
+
+export interface BriefingView {
+  greeting: string;
+  period: string;
+  done: string[];
+  unfinished: string[];
+  suggestion: { text: string } | null;
+}
+
+export interface QuizView {
+  question: string;
+  options: string[];
+  project: string;
+  result: { chosen: number; correct: number; right: boolean; explain: string } | null;
+}
+
+export interface RepoStatus {
+  repo: string;
+  branch: string;
+  state: string;
+  url: string;
+  checked: string;
+}
+
+export interface GithubStatus {
+  hasToken: boolean;
+  repos: RepoStatus[];
 }
 
 export interface ActionView {
@@ -108,6 +146,9 @@ export interface PetView {
   progress: ProgressView | null;
   look: Look;
   emotes: ActionView[];
+  quests: QuestView[];
+  briefing: BriefingView | null;
+  quiz: QuizView | null;
   followMouse: boolean;
   hooksInstalled: boolean;
   gameActive: boolean;
@@ -143,6 +184,10 @@ export interface Settings {
     levelUp: boolean;
     breaks: boolean;
   };
+  briefing: { enabled: boolean };
+  learn: { enabled: boolean; everyMins: number };
+  quests: { enabled: boolean; difficulty: "easy" | "normal" | "hard"; perDay: number; kinds: string[] };
+  github: { enabled: boolean; everyMins: number };
 }
 
 export interface QuickAction {

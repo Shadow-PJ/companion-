@@ -67,8 +67,11 @@ pub fn on_clipboard_settled(app: &AppHandle, owner: HWND) {
         title: "That looks like an error.".into(),
         detail: crate::sessions::first_line(&text, 160),
         project: crate::sessions::project_name(&dir),
+        url: None,
+        dir: None,
     };
     lock(&state.ui).offer = Some((offer, Instant::now() + Duration::from_secs(25)));
+    state::hold_out(app, 25);
     crate::sounds::play(app, crate::sounds::Sound::Notice);
     crate::pet_window::show(app);
     state::publish(app);

@@ -11,7 +11,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { diag } from "../shared/diag";
 import { button, compact, el } from "../shared/dom";
-import type { Offer, PermView, PetView, ProgressView } from "../shared/types";
+import type { BriefingView, Offer, PermView, PetView, ProgressView, QuestView, QuizView } from "../shared/types";
 
 const PHASE_LABEL: Record<string, string> = {
   idle: "Idle",
@@ -39,7 +39,11 @@ export class Bubble {
   private dropBox = el("div", { class: "note drop" });
   private menuBox = el("div", { class: "menu" });
   private offerBox = el("div", { class: "offer" });
+  private quizBox = el("div", { class: "quiz" });
+  private briefBox = el("div", { class: "brief" });
   private noteBox = el("div", { class: "note" });
+  private quizKey = "";
+  private briefKey = "";
   private chatBox: HTMLElement;
   private permKey = "";
   private noteKey = "";
@@ -74,7 +78,7 @@ export class Bubble {
       el("div", { class: "title", text: "Drop it on me!" }),
       el("div", { class: "muted small", text: "Then tell me what to do with it." }),
     );
-    root.append(this.permBox, this.dropBox, this.menuBox, this.chatBox, this.offerBox, this.noteBox);
+    root.append(this.permBox, this.dropBox, this.menuBox, this.chatBox, this.quizBox, this.briefBox, this.offerBox, this.noteBox);
   }
 
   render(v: PetView) {
@@ -84,6 +88,8 @@ export class Bubble {
       drop: false,
       menu: false,
       chat: false,
+      quiz: false,
+      brief: false,
       offer: false,
       note: false,
     };
@@ -92,6 +98,8 @@ export class Bubble {
     } else if (v.dropHover) show.drop = true;
     else if (this.menuOpen) show.menu = true;
     else if (v.chatOpen) show.chat = true;
+    else if (v.quiz) show.quiz = true;
+    else if (v.briefing) show.brief = true;
     else if (v.offer) show.offer = true;
     else show.note = true;
 
@@ -99,6 +107,8 @@ export class Bubble {
     this.dropBox.hidden = !show.drop;
     this.menuBox.hidden = !show.menu;
     this.chatBox.hidden = !show.chat;
+    this.quizBox.hidden = !show.quiz;
+    this.briefBox.hidden = !show.brief;
     this.offerBox.hidden = !show.offer;
     this.noteBox.hidden = !show.note;
 
@@ -106,6 +116,8 @@ export class Bubble {
     else this.stopCountdown();
     if (show.menu) this.renderMenu(v);
     if (show.chat) this.renderChat(v);
+    if (show.quiz && v.quiz) this.renderQuiz(v.quiz);
+    if (show.brief && v.briefing) this.renderBriefing(v.briefing, v.quests);
     if (show.offer && v.offer) this.renderOffer(v.offer);
     if (show.note) this.renderNote(v);
 
@@ -154,6 +166,7 @@ export class Bubble {
         emotes.length ? el("div", { class: "emotes" }, ...emotes) : null,
         el("hr"),
         item("Chat with Claude…", () => this.openChat(), "subtle"),
+        item("Today's briefing and quests", () => void invoke("briefing_show"), "subtle"),
         item("Settings…", () => void invoke("open_settings"), "subtle"),
       ),
     );
@@ -329,13 +342,85 @@ export class Bubble {
     return true;
   }
 
-  // ---------- offers: copied errors, failing tests ----------
+  // ---------- learn mode ----------
+
+  private renderQuiz(q: QuizView) {
+    const key = JSON.stringify(q);
+    if (key === this.quizKey) return;
+    this.quizKey = key;
+    const r = q.result;
+    const options = q.options.map((text, i) => {
+      let cls = "menu-item option";
+      if (r && i === r.correct) cls += " right";
+      else if (r && i === r.chosen) cls += " wrong";
+      const b = button(`${String.fromCharCode(65 + i)}. ${text}`, cls, () => void invoke("quiz_answer", { index: i }));
+      b.disabled = !!r;
+      return b;
+    });
+    this.quizBox.replaceChildren(
+      ...compact(
+        el("div", { class: "eyebrow", text: `Learn mode${q.project ? ` · ${q.project}` : ""}` }),
+        el("div", { class: "title", text: q.question }),
+        ...options,
+        r ? el("div", { class: r.right ? "result right" : "result wrong", text: r.right ? "Right! +15 XP" : "Not quite." }) : null,
+        r && r.explain ? el("div", { class: "muted small", text: r.explain }) : null,
+        r ? null : el("div", { class: "actions" }, button("Skip", "ghost", () => void invoke("quiz_skip"))),
+      ),
+    );
+  }
+
+  // ---------- daily briefing ----------
+
+  private renderBriefing(b: BriefingView, quests: QuestView[]) {
+    const key = JSON.stringify([b, quests]);
+    if (key === this.briefKey) return;
+    this.briefKey = key;
+    const list = (items: string[]) => el("ul", { class: "list" }, ...items.map((t) => el("li", { text: t })));
+    this.briefBox.replaceChildren(
+      ...compact(
+        el("div", { class: "title", text: b.greeting }),
+        b.done.length ? el("div", { class: "eyebrow", text: b.period }) : null,
+        b.done.length ? list(b.done) : el("div", { class: "muted small", text: "No commits from you recently in the projects I know." }),
+        b.unfinished.length ? el("div", { class: "eyebrow", text: "Unfinished" }) : null,
+        b.unfinished.length ? list(b.unfinished) : null,
+        quests.length ? el("div", { class: "eyebrow", text: "Today's quests" }) : null,
+        quests.length ? questList(quests) : null,
+        b.suggestion ? el("div", { class: "eyebrow", text: "One small next step" }) : null,
+        b.suggestion ? el("div", { class: "line", text: b.suggestion.text }) : null,
+        el(
+          "div",
+          { class: "actions" },
+          ...compact(
+            b.suggestion ? button("Do it with Claude", "primary", () => void invoke("briefing_do")) : null,
+            button("Thanks!", b.suggestion ? "ghost" : "primary", () => void invoke("briefing_dismiss")),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ---------- offers: copied errors, failing tests, CI, breaks ----------
 
   private renderOffer(o: Offer) {
     const key = JSON.stringify(o);
     if (key === this.offerKey) return;
     this.offerKey = key;
     const choose = (choice: string) => () => void invoke("offer_action", { choice });
+    if (o.kind === "ci") {
+      this.offerBox.replaceChildren(
+        el("div", { class: "eyebrow" }, el("span", { class: "dot failed" }), `${o.project} · GitHub Actions`),
+        el("div", { class: "title", text: o.title }),
+        el("div", { class: "muted small", text: o.detail }),
+        el(
+          "div",
+          { class: "actions" },
+          button("Open on GitHub", "", choose("open")),
+          button("Fix it", "primary", choose("fix")),
+          button("Dismiss", "ghost", choose("dismiss")),
+        ),
+      );
+      return;
+    }
     if (o.kind === "break") {
       this.offerBox.replaceChildren(
         el("div", { class: "eyebrow", text: "Glowby" }),
@@ -445,20 +530,40 @@ export class Bubble {
         hints.length ? el("div", { class: "muted small", text: `${hints.join(" · ")} · drop a file on me` }) : null,
       ];
     }
-    // Level, XP bar and streak under the status (not on toasts).
+    // Level, XP bar, streak and quests under the status (not on toasts).
     const p = v.toast ? null : v.progress;
-    key += p ? `|${p.level}:${p.xp}:${p.streak}:${p.energy}` : "";
+    const questsDone = v.quests.filter((q) => q.done).length;
+    key += p ? `|${p.level}:${p.xp}:${p.streak}:${p.energy}:${questsDone}/${v.quests.length}` : "";
     if (key === this.noteKey) return;
     this.noteKey = key;
-    this.noteBox.replaceChildren(...content.filter((c): c is Node | string => c !== null), ...(p ? [progressLine(p)] : []));
+    this.noteBox.replaceChildren(
+      ...content.filter((c): c is Node | string => c !== null),
+      ...(p ? [progressLine(p, v.quests.length ? `Quests ${questsDone}/${v.quests.length}` : "")] : []),
+    );
     this.noteBox.onclick = v.toast ? () => void invoke("dismiss_toast") : null;
   }
 }
 
-function progressLine(p: ProgressView): HTMLElement {
+function questList(quests: QuestView[]): HTMLElement {
+  return el(
+    "ul",
+    { class: "list quests" },
+    ...quests.map((q) =>
+      el(
+        "li",
+        { class: q.done ? "done" : "" },
+        `${q.done ? "✓" : "○"} ${q.label}`,
+        el("span", { class: "muted small", text: q.done ? ` +${q.xp} XP` : ` ${q.progress}/${q.target}` }),
+      ),
+    ),
+  );
+}
+
+function progressLine(p: ProgressView, quests: string): HTMLElement {
   const pct = Math.round((p.xpIntoLevel / Math.max(1, p.xpForLevel)) * 100);
   const bits = [`Lv ${p.level} ${p.stageName}`];
   if (p.streak >= 2) bits.push(`${p.streak}-day streak`);
+  if (quests) bits.push(quests);
   if (p.energy <= 40) bits.push("tired");
   return el(
     "div",

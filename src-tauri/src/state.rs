@@ -27,6 +27,8 @@ pub struct Paths {
     pub chat_settings_file: PathBuf,
     pub health_file: PathBuf,
     pub progress_file: PathBuf,
+    pub quests_file: PathBuf,
+    pub projects_file: PathBuf,
 }
 
 pub struct AppState {
@@ -41,6 +43,10 @@ pub struct AppState {
     pub last_error: Mutex<Option<LastError>>,
     pub progress: Mutex<Progress>,
     pub breaks: Mutex<Breaks>,
+    pub quests: Mutex<crate::quests::QuestBook>,
+    pub projects: Mutex<crate::projects::Projects>,
+    pub learn: Mutex<crate::learn::Learn>,
+    pub github: Mutex<crate::github::Github>,
     timer: watch::Sender<Option<Instant>>,
     timer_rx: Mutex<Option<watch::Receiver<Option<Instant>>>>,
 }
@@ -98,6 +104,11 @@ pub struct Ui {
     pub offer: Option<(Offer, Instant)>,
     /// A file is being dragged over Glowby.
     pub drop_hover: bool,
+    /// Today's briefing, until you dismiss it.
+    pub briefing: Option<crate::briefing::BriefingView>,
+    /// Keep Glowby out until then (a new offer, briefing or question), even if
+    /// the mouse isn't on him. Afterwards he hides normally; hover to see it again.
+    pub hold_until: Option<Instant>,
     last_hot_color: Option<Option<(u32, u8)>>,
     last_tooltip: String,
 }
@@ -118,6 +129,9 @@ pub struct PetView {
     pub progress: Option<ProgressView>,
     pub look: Look,
     pub emotes: Vec<ActionView>,
+    pub quests: Vec<crate::quests::QuestView>,
+    pub briefing: Option<crate::briefing::BriefingView>,
+    pub quiz: Option<crate::learn::QuizView>,
     pub follow_mouse: bool,
     pub hooks_installed: bool,
     pub game_active: bool,
@@ -144,9 +158,13 @@ impl AppState {
             chat_settings_file: config_dir.join("chat-hooks.json"),
             health_file: config_dir.join("health.json"),
             progress_file: config_dir.join("progress.json"),
+            quests_file: config_dir.join("quests.json"),
+            projects_file: config_dir.join("projects.json"),
             config_dir,
         };
         let progress: Progress = settings::load_json(&paths.progress_file);
+        let quests: crate::quests::QuestBook = settings::load_json(&paths.quests_file);
+        let projects: crate::projects::Projects = settings::load_json(&paths.projects_file);
         let loaded: Settings = settings::load_json(&paths.settings_file);
         let chat_sessions: ChatSessions = settings::load_json(&paths.chat_sessions_file);
         let health: Health = settings::load_json(&paths.health_file);
@@ -162,6 +180,10 @@ impl AppState {
             last_error: Mutex::new(None),
             progress: Mutex::new(progress),
             breaks: Mutex::new(Breaks::default()),
+            quests: Mutex::new(quests),
+            projects: Mutex::new(projects),
+            learn: Mutex::new(crate::learn::Learn::default()),
+            github: Mutex::new(crate::github::Github::default()),
             timer,
             timer_rx: Mutex::new(Some(timer_rx)),
             paths,
@@ -180,6 +202,14 @@ impl AppState {
         }
         clean
     }
+}
+
+/// Keeps Glowby out for `secs` (he hides normally afterwards).
+pub fn hold_out(app: &AppHandle, secs: u64) {
+    let until = Instant::now() + Duration::from_secs(secs);
+    let state = app.state::<AppState>();
+    let mut ui = lock(&state.ui);
+    ui.hold_until = Some(ui.hold_until.map_or(until, |t| t.max(until)));
 }
 
 /// Shows a short message bubble (and pops Glowby out if allowed).
@@ -213,6 +243,12 @@ fn view_and_deadline(app: &AppHandle) -> (PetView, Option<Instant>) {
         let emotes = crate::progress::unlocked_emotes(&p).into_iter().map(|(id, label)| ActionView { id: id.into(), label: label.into() }).collect();
         (crate::progress::view(&p, wall_now), crate::progress::look(&p, &settings, wall_now), emotes, crate::progress::next_energy_drop(&p, wall_now))
     };
+    let quests = crate::quests::views(app);
+    let (quiz, quiz_deadline) = {
+        let mut learn = lock(&state.learn);
+        learn.expire(now);
+        (learn.view(now), learn.deadline())
+    };
     let break_due = if settings.breaks.enabled {
         lock(&state.breaks).due_at(now, Duration::from_secs(settings.breaks.interval_mins as u64 * 60))
     } else {
@@ -234,6 +270,7 @@ fn view_and_deadline(app: &AppHandle) -> (PetView, Option<Instant>) {
     deadlines.extend(ui.preview.map(|(_, until)| until));
     deadlines.extend(ui.offer.as_ref().map(|(_, until)| *until));
     deadlines.extend(break_due);
+    deadlines.extend(quiz_deadline);
     if settings.progression.neglect {
         deadlines.extend(energy_drop);
     }
@@ -246,16 +283,19 @@ fn view_and_deadline(app: &AppHandle) -> (PetView, Option<Instant>) {
             title: if f.kind == crate::health::CheckKind::Tests { "Tests are failing".into() } else { "The build is failing".into() },
             detail: f.command.clone(),
             project: crate::sessions::project_name(&f.project_dir),
+            url: None,
+            dir: Some(f.project_dir.clone()),
         })
     });
 
     let break_offer = clipboard_offer.as_ref().is_some_and(|o| o.kind == "break");
-    let error_offer = clipboard_offer.is_some() && !break_offer;
+    let ci_offer = clipboard_offer.as_ref().is_some_and(|o| o.kind == "ci");
+    let error_offer = clipboard_offer.as_ref().is_some_and(|o| o.kind == "clipboardError");
     let mood = match ui.preview {
         Some((preview, _)) => preview,
         None if ui.drop_hover => Mood::Happy,
         None if has_perm || error_offer || tracked == Mood::Alert => Mood::Alert,
-        None if failing.is_some() => Mood::Sick,
+        None if failing.is_some() || ci_offer => Mood::Sick,
         None if break_offer => Mood::Sleepy,
         None if chat_view.busy => Mood::Working,
         // Ignored for days: low energy makes Glowby sleepy (but never worse).
@@ -280,6 +320,9 @@ fn view_and_deadline(app: &AppHandle) -> (PetView, Option<Instant>) {
         progress: settings.progression.enabled.then_some(progress_view),
         look,
         emotes,
+        quests,
+        briefing: ui.briefing.clone(),
+        quiz,
         follow_mouse: settings.pet.follow_mouse,
         hooks_installed: ui.hooks_installed,
         game_active: ui.game_active,

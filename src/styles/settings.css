@@ -334,6 +334,17 @@ canvas.preview.faded {
   opacity: 0.5;
   cursor: default;
 }
+.quest-list {
+  margin: 4px 0;
+  padding-left: 4px;
+  list-style: none;
+}
+.quest-list li {
+  margin: 2px 0;
+}
+.gh-status {
+  margin-top: 8px;
+}
 .qa-list {
   display: flex;
   flex-direction: column;

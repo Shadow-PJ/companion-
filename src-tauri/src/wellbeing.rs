@@ -84,8 +84,9 @@ pub fn check(app: &AppHandle) {
     };
     let mins = length.as_secs() / 60;
     let detail = if mins >= 60 { format!("You've been coding for {} h {:02} min.", mins / 60, mins % 60) } else { format!("You've been coding for {mins} minutes.") };
-    let offer = Offer { kind: "break", title: "Time for a short break?".into(), detail, project: String::new() };
+    let offer = Offer { kind: "break", title: "Time for a short break?".into(), detail, project: String::new(), url: None, dir: None };
     lock(&state.ui).offer = Some((offer, now + OFFER_FOR));
+    state::hold_out(app, 60);
     sounds::play(app, Sound::Break);
     crate::pet_window::show(app);
     state::publish(app);

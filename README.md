@@ -42,6 +42,13 @@ For development with live reload of the web parts: `npm run dev`.
 * **Breaks:** after an hour of continuous coding (adjustable) Glowby suggests a rest.
 * **Sounds:** small synthesized chimes. Volume, per-event toggles, and mute in Settings.
   Always muted during fullscreen games.
+* **Daily briefing:** on your first activity of the day: yesterday's commits, unfinished
+  work, and one small next step (Do it with Claude). Right-click → Today's briefing.
+* **Learn mode:** after Claude edits your code, answer a quick question about it for XP
+  (uses Claude Haiku through your login, at most every 30 minutes by default).
+* **Daily quests:** 3 small goals a day with XP. Difficulty and types in Settings.
+* **GitHub CI check** (off by default): Glowby tells you when Actions fails on your
+  branch. The token is stored in Windows Credential Manager.
 
 For art changes, `npm run vite:dev` and open `http://127.0.0.1:1420/gallery.html` to see
 every stage, mood, hat, colour and emote at once.
@@ -82,7 +89,10 @@ Counts glowby.exe plus all of its WebView2 helper processes.
 * `settings.json` is changed only after you review a diff. It's backed up first, written
   atomically, and verified. **Uninstall hooks** removes only Glowby's entries.
 * No telemetry. Data lives in `%APPDATA%\dev.glowby.app` (settings, backups, chat
-  session IDs, test/build health) and `%LOCALAPPDATA%\Glowby\bin` (the hook program).
+  session IDs, test/build health, progress, quests, recent projects) and
+  `%LOCALAPPDATA%\Glowby\bin` (the hook program). The only network traffic Glowby itself
+  makes is the optional GitHub CI check (api.github.com, only when turned on); chat and
+  learn mode go through Claude Code with your login.
 * Every hook process ends itself within 15 s (permission questions: their timeout plus
   15 s), even if Claude Code never closes its input.
 * The error watcher is opt-in, checks text locally, forgets non-errors immediately,

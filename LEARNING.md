@@ -325,3 +325,59 @@ Two Windows/Chromium details:
 * To test level-ups in the real app, we backed up `progress.json`, sent fake hook events
   worth exactly 50 XP (level 2), checked the screen, then restored the backup. Test with
   real data paths, but leave the user's data exactly as you found it.
+
+## Phase 4: smart features
+
+### 1. The daily briefing is plain git, run once a day
+
+Glowby remembers which git repositories your Claude sessions ran in (`projects.json`:
+on the first event from a new folder it runs `git rev-parse --show-toplevel` once). On
+your first activity of the day it asks git:
+
+| Question | git command |
+|---|---|
+| What did I do yesterday? | `git log --since=… --until=… --author=<you> --pretty=format:%s` |
+| Uncommitted work? | `git status --porcelain` (one line per changed file) |
+| Unpushed commits? | `git rev-list --count @{u}..HEAD` (`@{u}` = the upstream branch) |
+| A TODO nearby? | `git grep -n -E "TODO|FIXME" -- <files in the last commit>` |
+
+The "one small next step" is a priority list (failing checks, commit, push, TODO,
+"write a test") rather than an AI call: instant, free, predictable, and easy to test.
+Git always runs without a shell, with no console window, and with a timeout.
+
+### 2. Learn mode: an LLM call with the doors closed
+
+Questions are written by Claude's small model:
+`claude -p --model haiku --tools "" --no-session-persistence --settings {"disableAllHooks":true}`.
+
+* `--tools ""`: the model can't run commands or edit files; it only writes text.
+* `disableAllHooks`: otherwise the quiz request would itself fire Glowby's hooks and
+  count as one of your coding sessions (we checked the log to confirm it doesn't).
+* It runs in Glowby's own data folder, so it reads no project files or CLAUDE.md.
+* The model reply is untrusted text: Glowby extracts the JSON object, checks it (2–4
+  options, valid answer index) and **shuffles the options**, because models tend to
+  put the right answer first (ours did in the test).
+
+### 3. Quests seeded by the date
+
+The three daily quests are chosen by a tiny pseudo-random generator (an LCG) seeded with
+a hash of the date. Same day, same quests, even after a restart; a new day gives a new
+set. That's the same trick games use for "daily challenges". Progress comes from events
+Glowby already sees: finished tasks, commits, fixes, passing tests, test files written,
+coding minutes (time between your events, ignoring gaps over 5 minutes), learn-mode
+answers and breaks.
+
+### 4. Secrets belong in the OS credential store
+
+The GitHub token goes into **Windows Credential Manager** (`CredWriteW` / `CredReadW`),
+the same place Windows keeps saved network passwords. It's tied to your Windows account,
+never written to a file Glowby controls, and never sent back to the page after you save
+it. The test stores a throwaway secret under its own name, reads it back and deletes it,
+so it never touches the real token.
+
+### 5. Being polite on someone's screen
+
+Phase 4 added things that wait for you (a briefing, a question, a failed CI run). If
+each one kept Glowby slid out until answered, he could cover the top of your screen for
+hours. Now new items keep him out for about a minute (`hold_out`), then he hides as
+usual. The item stays waiting for you; hover to see it.

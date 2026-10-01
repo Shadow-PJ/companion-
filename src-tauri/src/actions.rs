@@ -19,11 +19,16 @@ pub struct LastError {
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Offer {
-    /// "clipboardError" or "failingChecks"
+    /// "clipboardError", "failingChecks", "break" or "ci"
     pub kind: &'static str,
     pub title: String,
     pub detail: String,
     pub project: String,
+    /// A web page to open (CI run).
+    pub url: Option<String>,
+    /// The project folder this is about (where "Fix it" should run).
+    #[serde(skip)]
+    pub dir: Option<String>,
 }
 
 const MAX_ERROR_CHARS: usize = 6000;
@@ -68,9 +73,17 @@ pub fn run_action(app: &AppHandle, id: &str) -> Result<(), String> {
 
 /// Opens the chat and sends a filled-in prompt to Claude Code.
 pub fn run_prompt(app: &AppHandle, title: String, template: &str, read_only: bool) {
+    run_prompt_in(app, None, title, template, read_only);
+}
+
+/// Same, in a specific project folder (briefing suggestion, CI fix).
+pub fn run_prompt_in(app: &AppHandle, folder: Option<String>, title: String, template: &str, read_only: bool) {
     let state = app.state::<AppState>();
     let settings = state.settings();
-    let (dir, _) = chat::effective_dir(&state, &settings);
+    let dir = match &folder {
+        Some(f) => f.clone(),
+        None => chat::effective_dir(&state, &settings).0,
+    };
     let last = lock(&state.last_error).clone();
     let today = chrono::Local::now().format("%A %Y-%m-%d").to_string();
     let message = expand(template, last.as_ref(), &crate::sessions::project_name(&dir), &today);
@@ -80,7 +93,7 @@ pub fn run_prompt(app: &AppHandle, title: String, template: &str, read_only: boo
     state::publish(app);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let _ = chat::send(app, ChatRequest { message, title, read_only }).await;
+        let _ = chat::send(app, ChatRequest { message, title, read_only, dir: folder }).await;
     });
 }
 
@@ -88,6 +101,29 @@ pub fn run_prompt(app: &AppHandle, title: String, template: &str, read_only: boo
 pub fn offer_choice(app: &AppHandle, choice: &str) {
     let state = app.state::<AppState>();
     let taken = lock(&state.ui).offer.take().map(|(offer, _)| offer);
+    if let Some(ci) = taken.as_ref().filter(|o| o.kind == "ci") {
+        match choice {
+            "open" => {
+                if let Some(url) = ci.url.as_deref().filter(|u| u.starts_with("https://github.com/")) {
+                    let _ = std::process::Command::new("explorer.exe").arg(url).spawn();
+                }
+                // keep the offer until you fix it or dismiss it
+                lock(&state.ui).offer = Some((ci.clone(), std::time::Instant::now() + std::time::Duration::from_secs(6 * 3600)));
+            }
+            "fix" => {
+                let template = format!(
+                    "My GitHub Actions CI failed: {} ({}). Run: {}. Find out why (look at the workflow files, and use `gh run view --log-failed` if the GitHub CLI is installed), fix it with the smallest change, and verify locally if you can.",
+                    ci.title,
+                    ci.detail,
+                    ci.url.clone().unwrap_or_default()
+                );
+                run_prompt_in(app, ci.dir.clone(), "Fix the failing CI".into(), &template, false);
+            }
+            _ => {}
+        }
+        state::publish(app);
+        return;
+    }
     if taken.as_ref().is_some_and(|o| o.kind == "break") {
         match choice {
             "break" => {
@@ -113,7 +149,7 @@ pub fn offer_choice(app: &AppHandle, choice: &str) {
                 f.kind.noun(),
                 f.command
             );
-            run_prompt(app, format!("Fix failing {}", f.kind.noun()), &template, false);
+            run_prompt_in(app, Some(f.project_dir.clone()), format!("Fix failing {}", f.kind.noun()), &template, false);
         }
         ("explain", Some(f)) => {
             let template = format!(
@@ -121,7 +157,7 @@ pub fn offer_choice(app: &AppHandle, choice: &str) {
                 f.kind.noun(),
                 f.command
             );
-            run_prompt(app, format!("Why the {} fail", f.kind.noun()), &template, true);
+            run_prompt_in(app, Some(f.project_dir.clone()), format!("Why the {} fail", f.kind.noun()), &template, true);
         }
         ("fix", None) => run_prompt(app, "Fix this error".into(), FIX_TEMPLATE, false),
         ("explain", None) => run_prompt(app, "Explain this error".into(), EXPLAIN_TEMPLATE, true),

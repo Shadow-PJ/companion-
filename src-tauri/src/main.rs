@@ -3,18 +3,23 @@
 
 mod actions;
 mod applog;
+mod briefing;
 mod chat;
 mod commands;
 mod dropzone;
 mod error_watch;
 mod gamemode;
+mod github;
 mod health;
 mod hooks_installer;
 mod hotzone;
+mod learn;
 mod permissions;
 mod pet_window;
 mod pipe_server;
 mod progress;
+mod projects;
+mod quests;
 mod sessions;
 mod settings;
 mod single_instance;
@@ -57,6 +62,7 @@ fn main() {
             gamemode::install(&handle);
             state::spawn_mood_timer(handle.clone());
             tauri::async_runtime::spawn(pipe_server::run(handle.clone()));
+            github::spawn(handle.clone()); // sleeps unless the CI check is turned on
 
             let game_active = lock(&app.state::<AppState>().ui).game_active;
             hotzone::set_visible(!game_active);
@@ -116,6 +122,16 @@ fn main() {
             commands::default_quick_actions,
             commands::get_progress,
             commands::play_emote,
+            commands::briefing_show,
+            commands::briefing_dismiss,
+            commands::briefing_do,
+            commands::quiz_answer,
+            commands::quiz_skip,
+            commands::quests_today,
+            commands::github_save_token,
+            commands::github_remove_token,
+            commands::github_status,
+            commands::github_check_now,
             commands::drag_start,
             commands::dismiss_toast,
             commands::pet_hide,

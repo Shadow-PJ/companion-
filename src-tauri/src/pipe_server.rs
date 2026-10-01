@@ -187,6 +187,20 @@ fn on_event(app: &AppHandle, envelope: &HookEnvelope) {
     if pop_out {
         pet_window::show(app);
     }
+    // Smart features: remember the repo, count coding time, learn mode.
+    let payload = &envelope.payload;
+    crate::projects::note_cwd(app, crate::sessions::str_field(payload, "cwd").unwrap_or(""));
+    crate::quests::tick(app);
+    crate::learn::on_event(app, &envelope.event, payload);
+    if envelope.event == "PostToolUse" {
+        if let Some(file) = crate::quests::written_test_file(payload) {
+            crate::quests::test_written(app, file);
+        }
+        let command = payload.pointer("/tool_input/command").and_then(serde_json::Value::as_str).unwrap_or("");
+        if command.contains("git push") {
+            crate::github::after_push(app);
+        }
+    }
     // Progression: you're coding (streak, energy, break timer); finished turns earn XP.
     match envelope.event.as_str() {
         "UserPromptSubmit" => {
@@ -194,9 +208,10 @@ fn on_event(app: &AppHandle, envelope: &HookEnvelope) {
             crate::progress::activity(app, true);
         }
         "Stop" => {
-            let session = crate::sessions::str_field(&envelope.payload, "session_id").unwrap_or("");
+            let session = crate::sessions::str_field(payload, "session_id").unwrap_or("");
             let tools = lock(&state.tracker).tools_this_turn(session);
             crate::progress::task_finished(app, tools > 0);
+            crate::projects::save(app);
         }
         _ => {}
     }

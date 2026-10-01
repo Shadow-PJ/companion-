@@ -307,12 +307,12 @@ fn start_cursor_loop(app: AppHandle, generation: u64) {
                     ui.drag = None;
                 }
                 let toast_active = ui.toast.as_ref().is_some_and(|(_, until)| *until > now);
-                let offer_active = ui.offer.as_ref().is_some_and(|(_, until)| *until > now);
+                let held = ui.hold_until.is_some_and(|until| until > now);
                 // A held mouse button usually means you're dragging a file over to Glowby.
                 let sticky = ui.chat_open
                     || has_permission
                     || toast_active
-                    || offer_active
+                    || held
                     || ui.preview.is_some()
                     || ui.drop_hover
                     || dragging

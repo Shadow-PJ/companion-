@@ -378,6 +378,7 @@ pub fn activity(app: &AppHandle, coding: bool) {
         celebrate(app, unlocks);
         award(app, 5 * streak.min(7), "daily streak");
     }
+    crate::briefing::maybe_start_day(app);
     state::publish(app);
 }
 
@@ -386,6 +387,7 @@ pub fn task_finished(app: &AppHandle, used_tools: bool) {
     if used_tools {
         lock(&app.state::<AppState>().progress).stats.tasks += 1;
         award(app, TASK_XP, "task done");
+        crate::quests::progress(app, "tasks", 1);
     } else {
         award(app, CHAT_XP, "chat");
     }
@@ -394,16 +396,19 @@ pub fn task_finished(app: &AppHandle, used_tools: bool) {
 pub fn fixed(app: &AppHandle) {
     lock(&app.state::<AppState>().progress).stats.fixes += 1;
     award(app, FIX_XP, "fixed it");
+    crate::quests::progress(app, "fix", 1);
 }
 
 pub fn committed(app: &AppHandle) {
     lock(&app.state::<AppState>().progress).stats.commits += 1;
     award(app, COMMIT_XP, "commit");
+    crate::quests::progress(app, "commit", 1);
 }
 
 pub fn took_break(app: &AppHandle) {
     lock(&app.state::<AppState>().progress).stats.breaks += 1;
     award(app, BREAK_XP, "rested");
+    crate::quests::progress(app, "break", 1);
 }
 
 /// Passing tests: XP at most once per cooldown per project.

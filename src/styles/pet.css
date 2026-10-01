@@ -252,6 +252,56 @@ pre.detail {
   cursor: pointer;
 }
 
+/* learn mode and briefing */
+.quiz,
+.brief {
+  width: 310px;
+}
+.btn.option {
+  border-color: var(--border);
+  margin: 4px 0;
+  white-space: normal;
+}
+.btn.option.right {
+  border-color: #3fae74;
+  background: rgba(63, 174, 116, 0.15);
+}
+.btn.option.wrong {
+  border-color: var(--danger);
+  background: rgba(194, 65, 59, 0.12);
+}
+.btn.option:disabled {
+  opacity: 1;
+}
+.result {
+  font-weight: 600;
+  margin-top: 4px;
+}
+.result.right {
+  color: #3fae74;
+}
+.result.wrong {
+  color: var(--danger);
+}
+.brief .eyebrow {
+  margin-top: 8px;
+}
+ul.list {
+  margin: 2px 0 0;
+  padding-left: 16px;
+}
+ul.list li {
+  margin: 1px 0;
+  overflow-wrap: anywhere;
+}
+ul.quests {
+  list-style: none;
+  padding-left: 2px;
+}
+ul.quests li.done {
+  color: var(--muted);
+}
+
 /* offers and the drop hint */
 .offer {
   width: 300px;

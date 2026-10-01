@@ -5,7 +5,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { PetRenderer } from "../pet/renderer";
 import { playSound } from "../pet/sound";
 import { button, compact, el } from "../shared/dom";
-import type { AppInfo, ChatMode, HooksPreview, HooksStatus, Look, MonitorInfo, ProgressInfo, Settings } from "../shared/types";
+import type { AppInfo, ChatMode, GithubStatus, HooksPreview, HooksStatus, Look, MonitorInfo, ProgressInfo, Settings } from "../shared/types";
 
 const app = document.getElementById("app")!;
 let settings: Settings;
@@ -459,6 +459,130 @@ function soundsSection() {
   );
 }
 
+function briefingSection() {
+  return section(
+    "Daily briefing",
+    "On your first activity of the day: what you committed yesterday, what's unfinished (uncommitted files, unpushed commits, failing tests) and one small next step. Worked out locally from git.",
+    toggle("Daily briefing", null, () => settings.briefing.enabled, (v) => (settings.briefing.enabled = v)),
+    el("div", { class: "actions" }, button("Show today's briefing now", "ghost", () => void invoke("briefing_show"))),
+  );
+}
+
+function learnSection() {
+  return section(
+    "Learn mode",
+    "After Claude changes your code, Glowby asks one short multiple-choice question about what changed and why. Right answers give +15 XP. The question is written by Claude's small model (Haiku) through your Claude login, so it uses a little of your Claude usage. Tools and hooks are switched off for that request.",
+    toggle("Learn mode", null, () => settings.learn.enabled, (v) => (settings.learn.enabled = v)),
+    numberInput("At most one question every", "5 to 240 minutes.", 5, 240, () => settings.learn.everyMins, (v) => (settings.learn.everyMins = v), "minutes"),
+  );
+}
+
+const QUEST_KINDS: [string, string][] = [
+  ["fix", "Fix bugs (failing tests or builds that pass again)"],
+  ["test", "Write tests"],
+  ["minutes", "Code for a while"],
+  ["tasks", "Finish tasks with Claude"],
+  ["commit", "Make commits"],
+  ["learn", "Answer learn-mode questions (needs learn mode)"],
+  ["break", "Take breaks (needs break reminders)"],
+];
+
+async function questsSection() {
+  const today = el("div");
+  async function refreshToday() {
+    const quests = await invoke<{ label: string; progress: number; target: number; done: boolean; xp: number }[]>("quests_today");
+    today.replaceChildren(
+      el("h3", { text: "Today" }),
+      quests.length
+        ? el("ul", { class: "quest-list" }, ...quests.map((q) => el("li", { text: `${q.done ? "✓" : "○"} ${q.label} · ${q.progress}/${q.target} · ${q.xp} XP` })))
+        : el("p", { class: "hint", text: "No quests today (turned off, or no quest types selected)." }),
+      el("p", { class: "hint", text: "Changes to difficulty and types apply from tomorrow's quests." }),
+    );
+  }
+  await refreshToday();
+  const kinds = el(
+    "div",
+    { class: "picker" },
+    ...QUEST_KINDS.map(([kind, label]) => {
+      const box = el("input", { type: "checkbox" });
+      box.checked = settings.quests.kinds.includes(kind);
+      box.addEventListener("change", () => {
+        settings.quests.kinds = box.checked ? [...settings.quests.kinds, kind] : settings.quests.kinds.filter((k) => k !== kind);
+        save();
+      });
+      return el("label", { class: "check" }, box, label);
+    }),
+  );
+  return section(
+    "Daily quests",
+    "Small goals for each day with XP rewards, plus a bonus when you finish them all.",
+    toggle("Daily quests", null, () => settings.quests.enabled, (v) => (settings.quests.enabled = v)),
+    select(
+      "Difficulty",
+      null,
+      [
+        ["easy", "Easy (15 XP each)"],
+        ["normal", "Normal (25 XP each)"],
+        ["hard", "Hard (40 XP each)"],
+      ],
+      () => settings.quests.difficulty,
+      (v) => (settings.quests.difficulty = v),
+    ),
+    numberInput("Quests per day", "1 to 5.", 1, 5, () => settings.quests.perDay, (v) => (settings.quests.perDay = v), "quests"),
+    row("Quest types", null, kinds),
+    today,
+  );
+}
+
+async function githubSection() {
+  const status = el("div", { class: "gh-status" });
+  const token = el("input", { type: "password", class: "text", placeholder: "github_pat_… (fine-grained token, Actions: read)", autocomplete: "off", spellcheck: "false" });
+  const message = el("div", { class: "hint" });
+
+  function renderStatus(s: GithubStatus) {
+    status.replaceChildren(
+      el("div", { class: "hint", text: s.hasToken ? "A token is stored in Windows Credential Manager." : "No token stored." }),
+      ...(s.repos.length
+        ? s.repos.map((r) =>
+            el("div", { class: "hint", text: `${r.repo} (${r.branch}): ${r.state === "none" ? "no runs" : r.state}${r.checked ? ` · checked ${r.checked}` : ""}` }),
+          )
+        : [el("div", { class: "hint", text: "Repositories: found from the git remotes of your recent Claude Code projects." })]),
+    );
+  }
+  renderStatus(await invoke<GithubStatus>("github_status"));
+
+  const saveBtn = button("Save token", "", async () => {
+    try {
+      await invoke("github_save_token", { token: token.value });
+      token.value = ""; // never kept in the page
+      message.textContent = "Saved to Windows Credential Manager.";
+      renderStatus(await invoke<GithubStatus>("github_status"));
+    } catch (e) {
+      message.textContent = String(e);
+    }
+  });
+  const removeBtn = button("Remove token", "ghost", async () => {
+    await invoke("github_remove_token");
+    message.textContent = "Token removed.";
+    renderStatus(await invoke<GithubStatus>("github_status"));
+  });
+  const checkBtn = button("Check now", "ghost", async () => {
+    message.textContent = "Checking…";
+    renderStatus(await invoke<GithubStatus>("github_check_now"));
+    message.textContent = "";
+  });
+  return section(
+    "GitHub CI check",
+    "Optional. If a GitHub Actions run fails on your current branch, Glowby tells you and can ask Claude to fix it. Only while this is on, Glowby contacts api.github.com, nothing else. Your token is stored in Windows Credential Manager, never in a file.",
+    toggle("Check my GitHub CI", null, () => settings.github.enabled, (v) => (settings.github.enabled = v)),
+    numberInput("Check every", "5 to 180 minutes (also a few minutes after a git push).", 5, 180, () => settings.github.everyMins, (v) => (settings.github.everyMins = v), "minutes"),
+    row("Token", "Create one at github.com → Settings → Developer settings → Fine-grained tokens, with read access to Actions.", el("span", { class: "inline grow" }, token, saveBtn)),
+    el("div", { class: "actions" }, removeBtn, checkBtn),
+    message,
+    status,
+  );
+}
+
 function performanceSection(info: AppInfo) {
   return section(
     "Performance",
@@ -487,7 +611,7 @@ function privacySection(info: AppInfo) {
     "Glowby sends nothing anywhere. Your settings, backups, and chat session IDs live only in this folder. (The chat itself talks to Anthropic through Claude Code, as Claude Code always does.)",
     el("div", { class: "inline" }, el("code", { text: info.dataDir }), button("Open data folder", "ghost", () => void invoke("open_folder", { which: "data" }))),
     info.pipeError ? el("p", { class: "message error", text: info.pipeError }) : null,
-    el("p", { class: "hint", text: `Version ${info.version}. Coming in later phases: quests, briefing, learn mode, GitHub check, squad mode.` }),
+    el("p", { class: "hint", text: `Version ${info.version}. Coming in the next phase: squad mode.` }),
   );
 }
 
@@ -511,6 +635,10 @@ async function main() {
     helpersSection(),
     breaksSection(),
     soundsSection(),
+    briefingSection(),
+    learnSection(),
+    await questsSection(),
+    await githubSection(),
     performanceSection(info),
     moodsSection(),
     privacySection(info),

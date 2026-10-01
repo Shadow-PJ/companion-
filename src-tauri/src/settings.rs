@@ -25,6 +25,79 @@ pub struct Settings {
     pub progression: ProgressionSettings,
     pub breaks: BreakSettings,
     pub sounds: SoundSettings,
+    pub briefing: BriefingSettings,
+    pub learn: LearnSettings,
+    pub quests: QuestSettings,
+    pub github: GithubSettings,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default, rename_all = "camelCase")]
+pub struct BriefingSettings {
+    pub enabled: bool,
+}
+
+impl Default for BriefingSettings {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default, rename_all = "camelCase")]
+pub struct LearnSettings {
+    pub enabled: bool,
+    /// At most one question this often (minutes).
+    pub every_mins: u32,
+}
+
+impl Default for LearnSettings {
+    fn default() -> Self {
+        Self { enabled: true, every_mins: 30 }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum Difficulty {
+    Easy,
+    Normal,
+    Hard,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default, rename_all = "camelCase")]
+pub struct QuestSettings {
+    pub enabled: bool,
+    pub difficulty: Difficulty,
+    pub per_day: u32,
+    /// Quest types that may be picked (see quests.rs).
+    pub kinds: Vec<String>,
+}
+
+impl Default for QuestSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            difficulty: Difficulty::Normal,
+            per_day: 3,
+            kinds: ["fix", "test", "minutes", "tasks", "commit", "learn", "break"].map(String::from).to_vec(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default, rename_all = "camelCase")]
+pub struct GithubSettings {
+    /// Off by default. The token itself lives in Windows Credential Manager.
+    pub enabled: bool,
+    pub every_mins: u32,
+}
+
+impl Default for GithubSettings {
+    fn default() -> Self {
+        Self { enabled: false, every_mins: 15 }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -199,6 +272,10 @@ impl Default for Settings {
             progression: ProgressionSettings::default(),
             breaks: BreakSettings::default(),
             sounds: SoundSettings::default(),
+            briefing: BriefingSettings::default(),
+            learn: LearnSettings::default(),
+            quests: QuestSettings::default(),
+            github: GithubSettings::default(),
         }
     }
 }
@@ -242,6 +319,9 @@ impl Settings {
         self.permissions.timeout_secs = self.permissions.timeout_secs.clamp(5, 540);
         self.breaks.interval_mins = self.breaks.interval_mins.clamp(15, 240);
         self.sounds.volume = self.sounds.volume.min(100);
+        self.learn.every_mins = self.learn.every_mins.clamp(5, 240);
+        self.quests.per_day = self.quests.per_day.clamp(1, 5);
+        self.github.every_mins = self.github.every_mins.clamp(5, 180);
         let mut seen = std::collections::HashSet::new();
         self.quick_actions.actions.truncate(20);
         for (i, action) in self.quick_actions.actions.iter_mut().enumerate() {

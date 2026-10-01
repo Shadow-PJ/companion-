@@ -62,7 +62,7 @@ pub fn js_log(message: String) {
 #[tauri::command]
 pub async fn chat_send(app: AppHandle, text: String) -> Result<(), String> {
     let title = crate::sessions::shorten(text.trim(), 90);
-    chat::send(app, chat::ChatRequest { message: text, title, read_only: false }).await
+    chat::send(app, chat::ChatRequest { message: text, title, read_only: false, dir: None }).await
 }
 
 #[tauri::command]
@@ -81,6 +81,69 @@ pub fn run_action(app: AppHandle, id: String) -> Result<(), String> {
 #[tauri::command]
 pub fn get_progress(app: AppHandle) -> crate::progress::ProgressInfo {
     crate::progress::info(&app)
+}
+
+// ---------- Phase 4: briefing, learn mode, quests, GitHub ----------
+
+#[tauri::command]
+pub fn briefing_show(app: AppHandle) {
+    crate::briefing::show(app);
+}
+
+#[tauri::command]
+pub fn briefing_dismiss(app: AppHandle) {
+    lock(&app.state::<AppState>().ui).briefing = None;
+    state::publish(&app);
+}
+
+/// "Do it with Claude" on the briefing's suggestion.
+#[tauri::command]
+pub fn briefing_do(app: AppHandle) {
+    let suggestion = lock(&app.state::<AppState>().ui).briefing.take().and_then(|b| b.suggestion);
+    if let Some(s) = suggestion {
+        actions::run_prompt_in(&app, Some(s.dir), s.text, &s.prompt, false);
+    }
+    state::publish(&app);
+}
+
+#[tauri::command]
+pub fn quiz_answer(app: AppHandle, index: usize) {
+    crate::learn::answer(&app, index);
+}
+
+#[tauri::command]
+pub fn quiz_skip(app: AppHandle) {
+    crate::learn::skip(&app);
+}
+
+#[tauri::command]
+pub fn quests_today(app: AppHandle) -> Vec<crate::quests::QuestView> {
+    crate::quests::views(&app)
+}
+
+#[tauri::command]
+pub fn github_save_token(app: AppHandle, token: String) -> Result<(), String> {
+    crate::github::save_token(&token)?;
+    crate::applog::line("GitHub token saved to Windows Credential Manager");
+    crate::github::wake(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn github_remove_token() {
+    crate::github::delete_token();
+    crate::applog::line("GitHub token removed from Windows Credential Manager");
+}
+
+#[tauri::command]
+pub fn github_status(app: AppHandle) -> crate::github::GithubStatus {
+    crate::github::status(&app)
+}
+
+#[tauri::command]
+pub async fn github_check_now(app: AppHandle) -> crate::github::GithubStatus {
+    crate::github::check(&app).await;
+    crate::github::status(&app)
 }
 
 /// Plays an unlocked emote on Glowby (from the menu or Settings).
@@ -203,6 +266,9 @@ pub fn save_settings(app: AppHandle, settings: Settings) -> Settings {
     if before.game_mode != saved.game_mode {
         tray::sync_game_mode(&app, saved.game_mode);
         gamemode::refresh(&app);
+    }
+    if before.github.enabled != saved.github.enabled || before.github.every_mins != saved.github.every_mins {
+        crate::github::wake(&app);
     }
     if before.error_watcher != saved.error_watcher {
         error_watch::apply(&app, saved.error_watcher);

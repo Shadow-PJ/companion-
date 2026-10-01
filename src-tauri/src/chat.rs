@@ -45,6 +45,8 @@ pub struct ChatRequest {
     pub message: String,
     pub title: String,
     pub read_only: bool,
+    /// Run in this project folder instead of the chat's usual one.
+    pub dir: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -246,7 +248,10 @@ async fn send_inner(app: &AppHandle, request: ChatRequest) -> Result<(), String>
     if !settings.chat.enabled {
         return Err("Chat is turned off in Settings.".into());
     }
-    let (dir, _) = effective_dir(&state, &settings);
+    let dir = match request.dir.clone().filter(|d| Path::new(d).is_dir()) {
+        Some(d) => d,
+        None => effective_dir(&state, &settings).0,
+    };
     if dir.is_empty() {
         return Err("Choose a project folder first (click the folder chip).".into());
     }
