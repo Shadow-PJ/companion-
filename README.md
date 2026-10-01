@@ -35,6 +35,16 @@ For development with live reload of the web parts: `npm run dev`.
   offers to fix or explain it.
 * **Sick?** Your tests or build are failing. Glowby gets better when they pass, or click
   Dismiss.
+* **Levels:** Glowby earns XP from finished tasks, fixes, passing tests and commits, and
+  evolves at levels 6, 15 and 30. Hats, colours and emotes unlock along the way
+  (Settings → Glowby's progress). Keep a daily streak; ignore him for days and he gets
+  tired (never worse).
+* **Breaks:** after an hour of continuous coding (adjustable) Glowby suggests a rest.
+* **Sounds:** small synthesized chimes. Volume, per-event toggles, and mute in Settings.
+  Always muted during fullscreen games.
+
+For art changes, `npm run vite:dev` and open `http://127.0.0.1:1420/gallery.html` to see
+every stage, mood, hat, colour and emote at once.
 
 ## Testing without Claude Code
 

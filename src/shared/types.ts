@@ -22,13 +22,48 @@ export interface PermView {
 }
 
 export interface Toast {
-  kind: "done" | "attention" | "failed" | "info";
+  kind: "done" | "attention" | "failed" | "info" | "levelup";
   text: string;
   project: string;
 }
 
+export interface ProgressView {
+  level: number;
+  stage: number;
+  stageName: string;
+  xp: number;
+  xpIntoLevel: number;
+  xpForLevel: number;
+  streak: number;
+  energy: number;
+}
+
+export interface Look {
+  stage: number;
+  hat: string;
+  color: string;
+  weak: boolean;
+}
+
+export interface CosmeticView {
+  id: string;
+  kind: "hat" | "color" | "emote";
+  name: string;
+  unlocked: boolean;
+  requirement: string;
+}
+
+export interface ProgressInfo {
+  view: ProgressView;
+  look: Look;
+  stats: { tasks: number; fixes: number; testsPassed: number; commits: number; breaks: number };
+  bestStreak: number;
+  stages: [number, string][];
+  cosmetics: CosmeticView[];
+}
+
 export interface Offer {
-  kind: "clipboardError" | "failingChecks";
+  kind: "clipboardError" | "failingChecks" | "break";
   title: string;
   detail: string;
   project: string;
@@ -70,6 +105,9 @@ export interface PetView {
   chatOpen: boolean;
   dropHover: boolean;
   quickActions: ActionView[];
+  progress: ProgressView | null;
+  look: Look;
+  emotes: ActionView[];
   followMouse: boolean;
   hooksInstalled: boolean;
   gameActive: boolean;
@@ -94,6 +132,17 @@ export interface Settings {
   dropFiles: boolean;
   errorWatcher: boolean;
   health: boolean;
+  progression: { enabled: boolean; neglect: boolean; hat: string; color: string };
+  breaks: { enabled: boolean; intervalMins: number };
+  sounds: {
+    enabled: boolean;
+    volume: number;
+    taskDone: boolean;
+    needsYou: boolean;
+    problems: boolean;
+    levelUp: boolean;
+    breaks: boolean;
+  };
 }
 
 export interface QuickAction {

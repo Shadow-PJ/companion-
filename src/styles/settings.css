@@ -51,7 +51,7 @@ body {
 }
 #logo {
   width: 84px;
-  height: 78px;
+  height: 86px;
 }
 h1 {
   margin: 0;
@@ -272,6 +272,67 @@ code {
 }
 .diff .gap {
   color: var(--muted);
+}
+.progress-head {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+.progress-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.big {
+  font-size: 17px;
+  font-weight: 600;
+}
+.xpbar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--soft);
+  overflow: hidden;
+}
+.xpbar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #7f9bff, #ed93b1);
+}
+canvas.preview {
+  width: 112px;
+  height: 115px;
+}
+canvas.preview.faded {
+  opacity: 0.35;
+  filter: grayscale(0.7);
+}
+.stages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+}
+.stage.current {
+  border-color: var(--accent);
+}
+.picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.picker .btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .qa-list {
   display: flex;

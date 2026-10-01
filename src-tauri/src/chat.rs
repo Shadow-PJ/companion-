@@ -322,6 +322,7 @@ async fn send_inner(app: &AppHandle, request: ChatRequest) -> Result<(), String>
             Err(e) => chat.error = Some(e.clone()),
         }
     }
+    crate::sounds::play(&app, if outcome.is_ok() { crate::sounds::Sound::Done } else { crate::sounds::Sound::Error });
     // If you closed the chat while waiting, pop out to show the reply.
     let chat_open = lock(&state.ui).chat_open;
     if !chat_open {

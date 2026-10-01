@@ -52,6 +52,8 @@ pub struct Session {
     pub last_event: Instant,
     pub phase_since: Instant,
     pub from_pet_chat: bool,
+    /// Tools used since your last prompt (a turn that used tools did real work).
+    pub tools_this_turn: u32,
 }
 
 /// Why Glowby might pop out on its own.
@@ -111,7 +113,13 @@ impl Tracker {
             last_event: now,
             phase_since: now,
             from_pet_chat,
+            tools_this_turn: 0,
         });
+        match event {
+            "UserPromptSubmit" => session.tools_this_turn = 0,
+            "PreToolUse" => session.tools_this_turn += 1,
+            _ => {}
+        }
         if !project.is_empty() {
             session.project = project;
             session.cwd = cwd;
@@ -223,6 +231,10 @@ impl Tracker {
             from_pet_chat: latest.from_pet_chat,
             others: live.len().saturating_sub(1),
         })
+    }
+
+    pub fn tools_this_turn(&self, session_id: &str) -> u32 {
+        self.sessions.get(session_id).map_or(0, |s| s.tools_this_turn)
     }
 
     /// Folder of your most recently active Claude Code session (not Glowby's own chat).

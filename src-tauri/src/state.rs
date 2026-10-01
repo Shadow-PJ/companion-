@@ -7,7 +7,9 @@ use crate::actions::{LastError, Offer};
 use crate::chat::{self, ChatState};
 use crate::health::Health;
 use crate::permissions::{PermView, Queue};
+use crate::progress::{Look, Progress, ProgressView};
 use crate::sessions::{Mood, StatusView, Tracker};
+use crate::wellbeing::Breaks;
 use crate::settings::{self, ChatSessions, Settings};
 use crate::{hotzone, pet_window, tray};
 use serde::{Deserialize, Serialize};
@@ -24,6 +26,7 @@ pub struct Paths {
     pub backups_dir: PathBuf,
     pub chat_settings_file: PathBuf,
     pub health_file: PathBuf,
+    pub progress_file: PathBuf,
 }
 
 pub struct AppState {
@@ -36,6 +39,8 @@ pub struct AppState {
     pub chat: Mutex<ChatState>,
     pub health: Mutex<Health>,
     pub last_error: Mutex<Option<LastError>>,
+    pub progress: Mutex<Progress>,
+    pub breaks: Mutex<Breaks>,
     timer: watch::Sender<Option<Instant>>,
     timer_rx: Mutex<Option<watch::Receiver<Option<Instant>>>>,
 }
@@ -109,6 +114,10 @@ pub struct PetView {
     pub chat_open: bool,
     pub drop_hover: bool,
     pub quick_actions: Vec<ActionView>,
+    /// None when XP and levels are turned off.
+    pub progress: Option<ProgressView>,
+    pub look: Look,
+    pub emotes: Vec<ActionView>,
     pub follow_mouse: bool,
     pub hooks_installed: bool,
     pub game_active: bool,
@@ -134,8 +143,10 @@ impl AppState {
             backups_dir: config_dir.join("backups"),
             chat_settings_file: config_dir.join("chat-hooks.json"),
             health_file: config_dir.join("health.json"),
+            progress_file: config_dir.join("progress.json"),
             config_dir,
         };
+        let progress: Progress = settings::load_json(&paths.progress_file);
         let loaded: Settings = settings::load_json(&paths.settings_file);
         let chat_sessions: ChatSessions = settings::load_json(&paths.chat_sessions_file);
         let health: Health = settings::load_json(&paths.health_file);
@@ -149,6 +160,8 @@ impl AppState {
             chat: Mutex::new(ChatState::default()),
             health: Mutex::new(health),
             last_error: Mutex::new(None),
+            progress: Mutex::new(progress),
+            breaks: Mutex::new(Breaks::default()),
             timer,
             timer_rx: Mutex::new(Some(timer_rx)),
             paths,
@@ -194,6 +207,17 @@ fn view_and_deadline(app: &AppHandle) -> (PetView, Option<Instant>) {
     };
     let chat_view = chat::view(&state, &settings);
     let failing = if settings.health { lock(&state.health).latest().cloned() } else { None };
+    let wall_now = chrono::Local::now();
+    let (progress_view, look, emotes, energy_drop) = {
+        let p = lock(&state.progress);
+        let emotes = crate::progress::unlocked_emotes(&p).into_iter().map(|(id, label)| ActionView { id: id.into(), label: label.into() }).collect();
+        (crate::progress::view(&p, wall_now), crate::progress::look(&p, &settings, wall_now), emotes, crate::progress::next_energy_drop(&p, wall_now))
+    };
+    let break_due = if settings.breaks.enabled {
+        lock(&state.breaks).due_at(now, Duration::from_secs(settings.breaks.interval_mins as u64 * 60))
+    } else {
+        None
+    };
 
     let mut ui = lock(&state.ui);
     if ui.toast.as_ref().is_some_and(|(_, until)| *until <= now) {
@@ -209,6 +233,10 @@ fn view_and_deadline(app: &AppHandle) -> (PetView, Option<Instant>) {
     deadlines.extend(ui.toast.as_ref().map(|(_, until)| *until));
     deadlines.extend(ui.preview.map(|(_, until)| until));
     deadlines.extend(ui.offer.as_ref().map(|(_, until)| *until));
+    deadlines.extend(break_due);
+    if settings.progression.neglect {
+        deadlines.extend(energy_drop);
+    }
 
     // A copied error offer wins; otherwise failing tests/builds stay on offer until they pass.
     let clipboard_offer = ui.offer.as_ref().map(|(o, _)| o.clone());
@@ -221,12 +249,17 @@ fn view_and_deadline(app: &AppHandle) -> (PetView, Option<Instant>) {
         })
     });
 
+    let break_offer = clipboard_offer.as_ref().is_some_and(|o| o.kind == "break");
+    let error_offer = clipboard_offer.is_some() && !break_offer;
     let mood = match ui.preview {
         Some((preview, _)) => preview,
         None if ui.drop_hover => Mood::Happy,
-        None if has_perm || clipboard_offer.is_some() || tracked == Mood::Alert => Mood::Alert,
+        None if has_perm || error_offer || tracked == Mood::Alert => Mood::Alert,
         None if failing.is_some() => Mood::Sick,
+        None if break_offer => Mood::Sleepy,
         None if chat_view.busy => Mood::Working,
+        // Ignored for days: low energy makes Glowby sleepy (but never worse).
+        None if tracked == Mood::Idle && look.weak => Mood::Sleepy,
         None => tracked,
     };
     let quick_actions = if settings.quick_actions.enabled {
@@ -244,6 +277,9 @@ fn view_and_deadline(app: &AppHandle) -> (PetView, Option<Instant>) {
         chat_open: ui.chat_open,
         drop_hover: ui.drop_hover,
         quick_actions,
+        progress: settings.progression.enabled.then_some(progress_view),
+        look,
+        emotes,
         follow_mouse: settings.pet.follow_mouse,
         hooks_installed: ui.hooks_installed,
         game_active: ui.game_active,
@@ -302,6 +338,7 @@ pub fn spawn_mood_timer(app: AppHandle) {
                     tokio::select! {
                         _ = tokio::time::sleep_until(tokio::time::Instant::from_std(at)) => {
                             lock(&app.state::<AppState>().tracker).forget_stale(Instant::now());
+                            crate::wellbeing::check(&app);
                             publish(&app);
                         }
                         changed = rx.changed() => if changed.is_err() { break },

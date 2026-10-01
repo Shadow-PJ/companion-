@@ -34,9 +34,10 @@ const HIDE_AFTER: Duration = Duration::from_millis(1400);
 const CURSOR_TICK: Duration = Duration::from_millis(33);
 
 /// WebView2 (Chromium) switches: skip features Glowby never uses, make sure the
-/// embedded browser doesn't phone home, and run the GPU and network services
-/// inside the main browser process (2 fewer processes, about 11 MB less RAM).
-pub const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,Translate,msEdgeTranslate,AutofillServerCommunication,MediaRouter --enable-features=NetworkServiceInProcess2 --in-process-gpu --disable-background-networking --disable-component-update --disable-sync --no-pings";
+/// embedded browser doesn't phone home, run the GPU and network services inside
+/// the main browser process (2 fewer processes, about 11 MB less RAM), and let
+/// Glowby play his event sounds without a click first (autoplay policy).
+pub const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,Translate,msEdgeTranslate,AutofillServerCommunication,MediaRouter --enable-features=NetworkServiceInProcess2 --in-process-gpu --autoplay-policy=no-user-gesture-required --disable-background-networking --disable-component-update --disable-sync --no-pings";
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]

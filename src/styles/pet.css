@@ -59,7 +59,7 @@ body {
 
 #pet {
   width: 168px;
-  height: 156px;
+  height: 172px;
   cursor: grab;
   touch-action: none;
 }
@@ -218,6 +218,38 @@ pre.detail {
   border: none;
   border-top: 1px solid var(--border);
   margin: 6px 0;
+}
+
+/* progression */
+.progress {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.xpbar {
+  height: 4px;
+  margin-top: 3px;
+  border-radius: 999px;
+  background: var(--chip);
+  overflow: hidden;
+}
+.xpbar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #7f9bff, #ed93b1);
+}
+.dot.levelup {
+  background: #f2b13c;
+}
+.emotes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 2px 0 4px;
+}
+.emotes .btn.chip {
+  cursor: pointer;
 }
 
 /* offers and the drop hint */

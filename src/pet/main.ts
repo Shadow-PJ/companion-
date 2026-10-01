@@ -5,7 +5,8 @@ import { listen } from "@tauri-apps/api/event";
 import { diag } from "../shared/diag";
 import type { PetView } from "../shared/types";
 import { Bubble } from "./bubble";
-import { BODY_X, BODY_Y, PetRenderer } from "./renderer";
+import { BODY_X, PetRenderer } from "./renderer";
+import { playSound } from "./sound";
 
 const stage = document.getElementById("stage")!;
 const canvas = document.getElementById("pet") as HTMLCanvasElement;
@@ -20,6 +21,7 @@ function apply(view: PetView) {
   followMouse = view.followMouse;
   if (!followMouse) renderer.lookToward(0, 0);
   renderer.setMood(view.mood);
+  renderer.setAppearance(view.look);
   bubble.render(view);
 }
 
@@ -43,7 +45,7 @@ function onCursor(p: { x: number; y: number }) {
   if (!followMouse) return;
   const r = canvas.getBoundingClientRect();
   const dx = p.x - (r.left + BODY_X);
-  const dy = p.y - (r.top + BODY_Y);
+  const dy = p.y - (r.top + renderer.bodyY());
   const dist = Math.hypot(dx, dy) || 1;
   const strength = Math.min(dist / 140, 1);
   renderer.lookToward((dx / dist) * strength, (dy / dist) * strength);
@@ -97,5 +99,12 @@ void listen<PetView>("pet://view", (e) => apply(e.payload));
 void listen<boolean>("pet://visibility", (e) => setVisible(e.payload));
 void listen<{ x: number; y: number }>("pet://cursor", (e) => onCursor(e.payload));
 void listen("pet://blur", () => bubble.onBlur());
+// Sounds arrive even while Glowby is hidden (Rust already checked Settings and game mode).
+void listen<{ name: string; volume: number }>("pet://sound", (e) => playSound(e.payload.name, e.payload.volume));
+void listen<string>("pet://emote", (e) => renderer.playEmote(e.payload));
+void listen<{ amount: number; reason: string }>("pet://xp", (e) => {
+  if (visible) renderer.addFloater(`+${e.payload.amount} XP`);
+});
+bubble.onEmote = (id) => void invoke("play_emote", { id });
 
 void invoke<PetView>("pet_ready").then(apply);

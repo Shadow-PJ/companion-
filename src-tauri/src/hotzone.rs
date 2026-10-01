@@ -139,6 +139,7 @@ fn cursor_inside(hwnd: HWND) -> bool {
 fn summon() {
     if let Some(app) = APP.get() {
         crate::pet_window::show(app);
+        crate::progress::activity(app, false); // saying hi keeps Glowby's energy up
     }
 }
 

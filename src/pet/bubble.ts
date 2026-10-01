@@ -11,7 +11,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { diag } from "../shared/diag";
 import { button, compact, el } from "../shared/dom";
-import type { Offer, PermView, PetView } from "../shared/types";
+import type { Offer, PermView, PetView, ProgressView } from "../shared/types";
 
 const PHASE_LABEL: Record<string, string> = {
   idle: "Idle",
@@ -31,6 +31,8 @@ const FILE_SUGGESTIONS: [string, string][] = [
 ];
 
 export class Bubble {
+  /** Set by main.ts: plays an emote. */
+  onEmote: (id: string) => void = () => {};
   private view: PetView | null = null;
   private menuOpen = false;
   private permBox = el("div", { class: "perm" });
@@ -131,7 +133,7 @@ export class Bubble {
   }
 
   private renderMenu(v: PetView) {
-    const key = JSON.stringify(v.quickActions);
+    const key = JSON.stringify([v.quickActions, v.emotes]);
     if (key === this.menuKey) return;
     this.menuKey = key;
     const item = (label: string, onClick: () => void, extra = "") =>
@@ -141,10 +143,15 @@ export class Bubble {
         this.rerender();
       });
     const actions = v.quickActions.map((a) => item(a.label, () => void invoke("run_action", { id: a.id })));
+    // Emotes stay in the menu so you can play several in a row.
+    const emotes = v.emotes.map((e) => button(e.label, "chip", () => this.onEmote(e.id)));
     this.menuBox.replaceChildren(
       ...compact(
         el("div", { class: "eyebrow", text: "Quick actions" }),
         ...(actions.length ? actions : [el("div", { class: "muted small", text: "No quick actions. Add some in Settings." })]),
+        emotes.length ? el("hr") : null,
+        emotes.length ? el("div", { class: "eyebrow", text: "Emotes" }) : null,
+        emotes.length ? el("div", { class: "emotes" }, ...emotes) : null,
         el("hr"),
         item("Chat with Claude…", () => this.openChat(), "subtle"),
         item("Settings…", () => void invoke("open_settings"), "subtle"),
@@ -329,6 +336,15 @@ export class Bubble {
     if (key === this.offerKey) return;
     this.offerKey = key;
     const choose = (choice: string) => () => void invoke("offer_action", { choice });
+    if (o.kind === "break") {
+      this.offerBox.replaceChildren(
+        el("div", { class: "eyebrow", text: "Glowby" }),
+        el("div", { class: "title", text: o.title }),
+        el("div", { class: "line", text: `${o.detail} Stretch, drink some water, look at something far away.` }),
+        el("div", { class: "actions" }, button("Taking a break", "primary", choose("break")), button("Snooze 15 min", "ghost", choose("snooze"))),
+      );
+      return;
+    }
     const isChecks = o.kind === "failingChecks";
     this.offerBox.replaceChildren(
       ...compact(
@@ -429,9 +445,25 @@ export class Bubble {
         hints.length ? el("div", { class: "muted small", text: `${hints.join(" · ")} · drop a file on me` }) : null,
       ];
     }
+    // Level, XP bar and streak under the status (not on toasts).
+    const p = v.toast ? null : v.progress;
+    key += p ? `|${p.level}:${p.xp}:${p.streak}:${p.energy}` : "";
     if (key === this.noteKey) return;
     this.noteKey = key;
-    this.noteBox.replaceChildren(...content.filter((c): c is Node | string => c !== null));
+    this.noteBox.replaceChildren(...content.filter((c): c is Node | string => c !== null), ...(p ? [progressLine(p)] : []));
     this.noteBox.onclick = v.toast ? () => void invoke("dismiss_toast") : null;
   }
+}
+
+function progressLine(p: ProgressView): HTMLElement {
+  const pct = Math.round((p.xpIntoLevel / Math.max(1, p.xpForLevel)) * 100);
+  const bits = [`Lv ${p.level} ${p.stageName}`];
+  if (p.streak >= 2) bits.push(`${p.streak}-day streak`);
+  if (p.energy <= 40) bits.push("tired");
+  return el(
+    "div",
+    { class: "progress", title: `${p.xpIntoLevel} / ${p.xpForLevel} XP to level ${p.level + 1}` },
+    el("div", { class: "muted small", text: bits.join(" · ") }),
+    el("div", { class: "xpbar" }, el("span", { style: `width:${pct}%` })),
+  );
 }

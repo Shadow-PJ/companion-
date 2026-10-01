@@ -3,8 +3,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { PetRenderer } from "../pet/renderer";
+import { playSound } from "../pet/sound";
 import { button, compact, el } from "../shared/dom";
-import type { AppInfo, ChatMode, HooksPreview, HooksStatus, MonitorInfo, Settings } from "../shared/types";
+import type { AppInfo, ChatMode, HooksPreview, HooksStatus, Look, MonitorInfo, ProgressInfo, Settings } from "../shared/types";
 
 const app = document.getElementById("app")!;
 let settings: Settings;
@@ -327,6 +328,137 @@ function helpersSection() {
   );
 }
 
+function canvasPreview(appearance: Look, mood: "happy" | "idle", faded = false) {
+  const c = el("canvas", { class: faded ? "preview faded" : "preview" });
+  new PetRenderer(c).drawStill(mood, { stage: appearance.stage, hat: appearance.hat, color: appearance.color, weak: false });
+  return c;
+}
+
+async function progressSection() {
+  const info = await invoke<ProgressInfo>("get_progress");
+  const card = section("Glowby's progress", "Glowby earns XP when Claude finishes tasks, when failing tests or builds pass again, for passing tests and commits, and for keeping a daily streak.");
+  const body = el("div");
+  card.append(body);
+
+  function render(info: ProgressInfo) {
+    const v = info.view;
+    const look = { ...info.look, hat: settings.progression.hat, color: settings.progression.color };
+    const owned = (id: string) => info.cosmetics.some((c) => c.id === id && c.unlocked);
+    if (!owned(look.hat)) look.hat = "";
+    if (!owned(look.color)) look.color = "periwinkle";
+    const pct = Math.round((v.xpIntoLevel / Math.max(1, v.xpForLevel)) * 100);
+
+    const stages = info.stages.map(([level, name], i) =>
+      el(
+        "div",
+        { class: "stage" + (i === v.stage ? " current" : "") },
+        canvasPreview({ ...look, stage: i }, "idle", i > v.stage),
+        el("div", { class: "hint", text: i > v.stage ? `${name} · Lv ${level}` : name }),
+      ),
+    );
+
+    const picker = (kind: "hat" | "color") => {
+      const items = info.cosmetics.filter((c) => c.kind === kind);
+      const current = kind === "hat" ? settings.progression.hat : settings.progression.color;
+      const choose = (id: string) => () => {
+        if (kind === "hat") settings.progression.hat = id;
+        else settings.progression.color = id;
+        save();
+        render(info);
+      };
+      return el(
+        "div",
+        { class: "picker" },
+        ...(kind === "hat" ? [button("No hat", current === "" ? "primary" : "", choose(""))] : []),
+        ...items.map((c) => {
+          const b = button(c.unlocked ? c.name : `${c.name} · ${c.requirement}`, c.id === current ? "primary" : "", choose(c.id));
+          b.disabled = !c.unlocked;
+          return b;
+        }),
+      );
+    };
+    const emotes = el(
+      "div",
+      { class: "picker" },
+      ...info.cosmetics
+        .filter((c) => c.kind === "emote")
+        .map((c) => {
+          const b = button(c.unlocked ? `Play ${c.name}` : `${c.name} · ${c.requirement}`, "", () => void invoke("play_emote", { id: c.id }));
+          b.disabled = !c.unlocked;
+          return b;
+        }),
+    );
+
+    body.replaceChildren(
+      el(
+        "div",
+        { class: "progress-head" },
+        canvasPreview(look, "happy"),
+        el(
+          "div",
+          { class: "progress-text" },
+          el("div", { class: "big", text: `Level ${v.level} · ${v.stageName}` }),
+          el("div", { class: "xpbar" }, el("span", { style: `width:${pct}%` })),
+          el("div", { class: "hint", text: `${v.xpIntoLevel} / ${v.xpForLevel} XP to level ${v.level + 1} · ${v.xp} XP total` }),
+          el("div", { class: "hint", text: `Streak: ${v.streak} day${v.streak === 1 ? "" : "s"} (best ${info.bestStreak}) · Energy ${v.energy}%` }),
+          el(
+            "div",
+            { class: "hint", text: `Tasks ${info.stats.tasks} · Fixes ${info.stats.fixes} · Test runs passed ${info.stats.testsPassed} · Commits ${info.stats.commits} · Breaks ${info.stats.breaks}` },
+          ),
+        ),
+      ),
+      el("h3", { text: "Evolution" }),
+      el("div", { class: "stages" }, ...stages),
+      el("h3", { text: "Hat" }),
+      picker("hat"),
+      el("h3", { text: "Colour" }),
+      picker("color"),
+      el("h3", { text: "Emotes" }),
+      emotes,
+      toggle("Earn XP and level up", null, () => settings.progression.enabled, (v) => (settings.progression.enabled = v)),
+      toggle(
+        "Get sleepy when ignored",
+        "If you don't code or visit Glowby for a few days he gets tired and pale. He never dies, and perks up when you're back.",
+        () => settings.progression.neglect,
+        (v) => (settings.progression.neglect = v),
+      ),
+    );
+  }
+  render(info);
+  return card;
+}
+
+function breaksSection() {
+  return section(
+    "Break reminder",
+    "After a long stretch of coding, Glowby gets sleepy and suggests a short rest. A pause of 15 minutes counts as a break.",
+    toggle("Remind me to take breaks", null, () => settings.breaks.enabled, (v) => (settings.breaks.enabled = v)),
+    numberInput("Remind me after", "15 to 240 minutes of continuous coding.", 15, 240, () => settings.breaks.intervalMins, (v) => (settings.breaks.intervalMins = v), "minutes"),
+  );
+}
+
+function soundsSection() {
+  const slider = el("input", { type: "range", min: 0, max: 100, step: 5, class: "range" });
+  slider.value = String(settings.sounds.volume);
+  slider.addEventListener("input", () => {
+    settings.sounds.volume = Number(slider.value);
+    save();
+  });
+  slider.addEventListener("change", () => playSound("done", settings.sounds.volume / 100));
+  const s = settings.sounds;
+  return section(
+    "Sounds",
+    "Little chimes made in code (no sound files). Always muted while a fullscreen game runs.",
+    toggle("Sounds", null, () => s.enabled, (v) => (s.enabled = v)),
+    row("Volume", null, el("span", { class: "inline" }, slider, button("Test", "ghost", () => playSound("levelup", s.volume / 100)))),
+    toggle("Task finished", null, () => s.taskDone, (v) => (s.taskDone = v)),
+    toggle("Claude needs you", "Permission questions and notifications.", () => s.needsYou, (v) => (s.needsYou = v)),
+    toggle("Problems", "Failing tests or builds, errors.", () => s.problems, (v) => (s.problems = v)),
+    toggle("Level up", null, () => s.levelUp, (v) => (s.levelUp = v)),
+    toggle("Break reminder", null, () => s.breaks, (v) => (s.breaks = v)),
+  );
+}
+
 function performanceSection(info: AppInfo) {
   return section(
     "Performance",
@@ -355,7 +487,7 @@ function privacySection(info: AppInfo) {
     "Glowby sends nothing anywhere. Your settings, backups, and chat session IDs live only in this folder. (The chat itself talks to Anthropic through Claude Code, as Claude Code always does.)",
     el("div", { class: "inline" }, el("code", { text: info.dataDir }), button("Open data folder", "ghost", () => void invoke("open_folder", { which: "data" }))),
     info.pipeError ? el("p", { class: "message error", text: info.pipeError }) : null,
-    el("p", { class: "hint", text: `Version ${info.version}. Coming in later phases: progression, sounds, quests, briefing, learn mode, GitHub check, squad mode.` }),
+    el("p", { class: "hint", text: `Version ${info.version}. Coming in later phases: quests, briefing, learn mode, GitHub check, squad mode.` }),
   );
 }
 
@@ -371,11 +503,14 @@ async function main() {
   settings = loaded;
   app.replaceChildren(
     hooksSection(),
+    await progressSection(),
     petSection(monitors),
     permissionsSection(),
     chatSection(info),
     quickActionsSection(),
     helpersSection(),
+    breaksSection(),
+    soundsSection(),
     performanceSection(info),
     moodsSection(),
     privacySection(info),

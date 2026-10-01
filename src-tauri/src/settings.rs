@@ -21,6 +21,61 @@ pub struct Settings {
     pub error_watcher: bool,
     /// Look sick while tests or builds fail.
     pub health: bool,
+    /// XP, levels, evolution, cosmetics, streak.
+    pub progression: ProgressionSettings,
+    pub breaks: BreakSettings,
+    pub sounds: SoundSettings,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ProgressionSettings {
+    /// Earn XP and level up.
+    pub enabled: bool,
+    /// Get sleepy and pale when ignored for days (never dies).
+    pub neglect: bool,
+    /// Equipped hat id ("" = none) and colour id.
+    pub hat: String,
+    pub color: String,
+}
+
+impl Default for ProgressionSettings {
+    fn default() -> Self {
+        Self { enabled: true, neglect: true, hat: String::new(), color: "periwinkle".into() }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default, rename_all = "camelCase")]
+pub struct BreakSettings {
+    pub enabled: bool,
+    /// Remind after this many minutes of continuous coding.
+    pub interval_mins: u32,
+}
+
+impl Default for BreakSettings {
+    fn default() -> Self {
+        Self { enabled: true, interval_mins: 60 }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SoundSettings {
+    pub enabled: bool,
+    /// 0–100
+    pub volume: u32,
+    pub task_done: bool,
+    pub needs_you: bool,
+    pub problems: bool,
+    pub level_up: bool,
+    pub breaks: bool,
+}
+
+impl Default for SoundSettings {
+    fn default() -> Self {
+        Self { enabled: true, volume: 40, task_done: true, needs_you: true, problems: true, level_up: true, breaks: true }
+    }
 }
 
 /// One entry in the right-click menu. The prompt may use placeholders:
@@ -141,6 +196,9 @@ impl Default for Settings {
             drop_files: true,
             error_watcher: false,
             health: true,
+            progression: ProgressionSettings::default(),
+            breaks: BreakSettings::default(),
+            sounds: SoundSettings::default(),
         }
     }
 }
@@ -182,6 +240,8 @@ impl Settings {
     pub fn sanitized(mut self) -> Self {
         self.pet.position = self.pet.position.clamp(0.0, 1.0);
         self.permissions.timeout_secs = self.permissions.timeout_secs.clamp(5, 540);
+        self.breaks.interval_mins = self.breaks.interval_mins.clamp(15, 240);
+        self.sounds.volume = self.sounds.volume.min(100);
         let mut seen = std::collections::HashSet::new();
         self.quick_actions.actions.truncate(20);
         for (i, action) in self.quick_actions.actions.iter_mut().enumerate() {

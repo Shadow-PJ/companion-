@@ -69,6 +69,7 @@ pub fn on_clipboard_settled(app: &AppHandle, owner: HWND) {
         project: crate::sessions::project_name(&dir),
     };
     lock(&state.ui).offer = Some((offer, Instant::now() + Duration::from_secs(25)));
+    crate::sounds::play(app, crate::sounds::Sound::Notice);
     crate::pet_window::show(app);
     state::publish(app);
 }

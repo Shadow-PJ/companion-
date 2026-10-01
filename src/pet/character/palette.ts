@@ -95,4 +95,50 @@ export function blendStyle(a: MoodStyle, b: MoodStyle, t: number): MoodStyle {
 
 export const rgba = (c: RGB, a = 1) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
 
+type Colors = Pick<MoodStyle, "bell" | "edge" | "inner" | "tentacle" | "halo">;
+
+/** Unlockable colours. They change the calm moods only: alert (amber) and
+ *  sick (green) always look the same, so you can still read them at a glance. */
+export const COLORWAYS: Record<string, Colors> = {
+  periwinkle: calm,
+  mint: { bell: hex("#A8EDD5"), edge: hex("#2F9C7A"), inner: hex("#DBF7EC"), tentacle: hex("#7FD1C4"), halo: hex("#5DCAA5") },
+  peach: { bell: hex("#FFC9B0"), edge: hex("#D2754F"), inner: hex("#FFE6DA"), tentacle: hex("#F39AA8"), halo: hex("#F0997B") },
+  lilac: { bell: hex("#D3C3FF"), edge: hex("#7C5FD0"), inner: hex("#EDE6FF"), tentacle: hex("#C08BE0"), halo: hex("#AFA9EC") },
+  rose: { bell: hex("#FFC2D6"), edge: hex("#C9557E"), inner: hex("#FFE3EC"), tentacle: hex("#F48FB8"), halo: hex("#ED93B1") },
+  aqua: { bell: hex("#A6EAF5"), edge: hex("#2B8FA8"), inner: hex("#DDF7FC"), tentacle: hex("#8FB8F0"), halo: hex("#5CC6DE") },
+};
+
+const GREY: RGB = [176, 180, 196];
+
+/** The target style for a mood, in the chosen colour. */
+export function styleFor(mood: Mood, color: string): MoodStyle {
+  const base = STYLES[mood];
+  const c = COLORWAYS[color];
+  if (!c || mood === "alert" || mood === "sick") return base;
+  if (mood === "sleepy") {
+    // sleepy = the same colour, faded towards grey
+    const fade = (x: RGB) => mixRGB(x, GREY, 0.45);
+    return { ...base, bell: fade(c.bell), edge: fade(c.edge), inner: fade(c.inner), tentacle: fade(c.tentacle), halo: fade(c.halo) };
+  }
+  return { ...base, ...c };
+}
+
+/** Rotates a colour around the colour wheel (used by the Aurora stage). */
+export function hueShift([r, g, b]: RGB, degrees: number): RGB {
+  const a = (degrees * Math.PI) / 180;
+  const cos = Math.cos(a);
+  const sin = Math.sin(a);
+  const m = [
+    [0.299 + 0.701 * cos + 0.168 * sin, 0.587 - 0.587 * cos + 0.33 * sin, 0.114 - 0.114 * cos - 0.497 * sin],
+    [0.299 - 0.299 * cos - 0.328 * sin, 0.587 + 0.413 * cos + 0.035 * sin, 0.114 - 0.114 * cos + 0.292 * sin],
+    [0.299 - 0.3 * cos + 1.25 * sin, 0.587 - 0.588 * cos - 1.05 * sin, 0.114 + 0.886 * cos - 0.203 * sin],
+  ];
+  const clamp = (v: number) => Math.max(0, Math.min(255, v));
+  return [
+    clamp(m[0][0] * r + m[0][1] * g + m[0][2] * b),
+    clamp(m[1][0] * r + m[1][1] * g + m[1][2] * b),
+    clamp(m[2][0] * r + m[2][1] * g + m[2][2] * b),
+  ];
+}
+
 export const INK = "#24263A";

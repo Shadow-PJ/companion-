@@ -14,11 +14,14 @@ mod hotzone;
 mod permissions;
 mod pet_window;
 mod pipe_server;
+mod progress;
 mod sessions;
 mod settings;
 mod single_instance;
+mod sounds;
 mod state;
 mod tray;
+mod wellbeing;
 
 use state::{AppState, lock};
 use tauri::{Emitter, Manager, RunEvent, WindowEvent};
@@ -111,6 +114,8 @@ fn main() {
             commands::offer_action,
             commands::health_clear,
             commands::default_quick_actions,
+            commands::get_progress,
+            commands::play_emote,
             commands::drag_start,
             commands::dismiss_toast,
             commands::pet_hide,

@@ -37,6 +37,8 @@ pub fn answer_permission(app: AppHandle, id: u64, choice: String) {
 #[tauri::command]
 pub fn chat_open(app: AppHandle) {
     crate::applog::debug("chat: open");
+    crate::progress::activity(&app, false);
+    crate::wellbeing::activity(&app);
     lock(&app.state::<AppState>().ui).chat_open = true;
     pet_window::focus_for_typing(&app);
     state::publish(&app);
@@ -72,7 +74,27 @@ pub fn chat_remove_attachment(app: AppHandle, index: usize) {
 /// A quick action from the right-click menu.
 #[tauri::command]
 pub fn run_action(app: AppHandle, id: String) -> Result<(), String> {
+    crate::wellbeing::activity(&app);
     actions::run_action(&app, &id)
+}
+
+#[tauri::command]
+pub fn get_progress(app: AppHandle) -> crate::progress::ProgressInfo {
+    crate::progress::info(&app)
+}
+
+/// Plays an unlocked emote on Glowby (from the menu or Settings).
+#[tauri::command]
+pub fn play_emote(app: AppHandle, id: String) -> Result<(), String> {
+    let unlocked = crate::progress::unlocked_emotes(&lock(&app.state::<AppState>().progress));
+    if !unlocked.iter().any(|(e, _)| *e == id) {
+        return Err("That emote isn't unlocked yet.".into());
+    }
+    crate::progress::activity(&app, false);
+    pet_window::peek(&app, 3);
+    use tauri::Emitter;
+    let _ = app.emit_to(pet_window::LABEL, "pet://emote", id);
+    Ok(())
 }
 
 /// "Fix it" / "Explain" / "Dismiss" on an offer bubble.

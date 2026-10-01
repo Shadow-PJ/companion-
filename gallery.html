@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Glowby gallery (dev only)</title>
+    <style>
+      body { margin: 0; padding: 16px; background: #1e2136; color: #eceefe; font: 13px "Segoe UI", system-ui, sans-serif; }
+      body.light { background: #f4f5fb; color: #1f2233; }
+      h2 { font-size: 14px; font-weight: 600; margin: 14px 0 6px; }
+      .row { display: flex; flex-wrap: wrap; gap: 8px; }
+      figure { margin: 0; text-align: center; }
+      canvas { width: 126px; height: 129px; display: block; }
+      figcaption { font-size: 11px; opacity: 0.75; }
+    </style>
+  </head>
+  <body>
+    <div id="gallery"></div>
+    <script type="module" src="/src/dev/gallery.ts"></script>
+  </body>
+</html>

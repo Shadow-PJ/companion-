@@ -142,6 +142,7 @@ async fn handle_client(app: AppHandle, pipe: NamedPipeServer) {
 /// A normal (non-question) hook event: update status / mood, maybe pop out.
 fn on_event(app: &AppHandle, envelope: &HookEnvelope) {
     let state = app.state::<AppState>();
+    crate::wellbeing::check(app); // catches a break reminder that is already overdue
     let attention = lock(&state.tracker).apply(&envelope.event, &envelope.payload, envelope.from_pet_chat);
     if envelope.from_pet_chat {
         chat::on_hook_activity(app, &envelope.event, &envelope.payload);
@@ -158,24 +159,46 @@ fn on_event(app: &AppHandle, envelope: &HookEnvelope) {
         pop_out |= wanted && !envelope.from_pet_chat;
     }
     if !envelope.from_pet_chat {
-        match attention {
-            Some(crate::sessions::Attention::Done(text)) if settings.pet.show_on_done => {
-                state::toast(app, "done", text, project, 5);
-                pop_out = true;
+        match &attention {
+            Some(crate::sessions::Attention::Done(text)) => {
+                crate::sounds::play(app, crate::sounds::Sound::Done);
+                if settings.pet.show_on_done {
+                    state::toast(app, "done", text.clone(), project, 5);
+                    pop_out = true;
+                }
             }
-            Some(crate::sessions::Attention::NeedsYou(text)) if settings.pet.show_on_attention => {
-                state::toast(app, "attention", text, project, 8);
-                pop_out = true;
+            Some(crate::sessions::Attention::NeedsYou(text)) => {
+                crate::sounds::play(app, crate::sounds::Sound::Alert);
+                if settings.pet.show_on_attention {
+                    state::toast(app, "attention", text.clone(), project, 8);
+                    pop_out = true;
+                }
             }
-            Some(crate::sessions::Attention::Failed(text)) if settings.pet.show_on_attention => {
-                state::toast(app, "failed", text, project, 8);
-                pop_out = true;
+            Some(crate::sessions::Attention::Failed(text)) => {
+                crate::sounds::play(app, crate::sounds::Sound::Error);
+                if settings.pet.show_on_attention {
+                    state::toast(app, "failed", text.clone(), project, 8);
+                    pop_out = true;
+                }
             }
-            _ => {}
+            None => {}
         }
     }
     if pop_out {
         pet_window::show(app);
+    }
+    // Progression: you're coding (streak, energy, break timer); finished turns earn XP.
+    match envelope.event.as_str() {
+        "UserPromptSubmit" => {
+            crate::wellbeing::activity(app);
+            crate::progress::activity(app, true);
+        }
+        "Stop" => {
+            let session = crate::sessions::str_field(&envelope.payload, "session_id").unwrap_or("");
+            let tools = lock(&state.tracker).tools_this_turn(session);
+            crate::progress::task_finished(app, tools > 0);
+        }
+        _ => {}
     }
     state::publish(app);
 }
@@ -238,6 +261,7 @@ fn begin_gate(app: &AppHandle, envelope: &HookEnvelope) -> Gate {
         resolve(&app_for_timeout, id, fallback);
     });
 
+    crate::sounds::play(app, crate::sounds::Sound::Alert);
     if settings.pet.show_on_permission {
         pet_window::show(app);
     }

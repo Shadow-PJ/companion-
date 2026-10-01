@@ -87,8 +87,21 @@ pub fn run_prompt(app: &AppHandle, title: String, template: &str, read_only: boo
 /// A button on an offer was clicked.
 pub fn offer_choice(app: &AppHandle, choice: &str) {
     let state = app.state::<AppState>();
-    let clipboard_offer = lock(&state.ui).offer.take().map(|(offer, _)| offer);
-    let failing = if clipboard_offer.is_none() { lock(&state.health).latest().cloned() } else { None };
+    let taken = lock(&state.ui).offer.take().map(|(offer, _)| offer);
+    if taken.as_ref().is_some_and(|o| o.kind == "break") {
+        match choice {
+            "break" => {
+                lock(&state.breaks).took_break();
+                crate::progress::took_break(app);
+                state::toast(app, "done", "Enjoy your break! I'll keep an eye on things.".into(), String::new(), 6);
+            }
+            "snooze" => lock(&state.breaks).snooze(std::time::Instant::now()),
+            _ => {}
+        }
+        state::publish(app);
+        return;
+    }
+    let failing = if taken.is_none() { lock(&state.health).latest().cloned() } else { None };
     match (choice, failing) {
         ("dismiss", Some(_)) => {
             lock(&state.health).clear();
@@ -125,23 +138,30 @@ pub fn save_health(app: &AppHandle) {
     }
 }
 
-/// Feeds a PostToolUse / PostToolUseFailure event into the error memory and
-/// the test/build health. Returns a toast to show, if the state changed.
+/// Feeds a PostToolUse / PostToolUseFailure event into the error memory, the
+/// test/build health and XP. Returns a toast to show, if the health changed.
 pub fn on_tool_result(app: &AppHandle, event: &str, payload: &serde_json::Value) -> Option<(&'static str, String)> {
     let state = app.state::<AppState>();
     let field = |k: &str| payload.get(k).and_then(serde_json::Value::as_str).unwrap_or("");
+    let command = payload.pointer("/tool_input/command").and_then(serde_json::Value::as_str);
     if event == "PostToolUseFailure" && !payload.get("is_interrupt").and_then(serde_json::Value::as_bool).unwrap_or(false) {
-        let what = match payload.pointer("/tool_input/command").and_then(serde_json::Value::as_str) {
+        let what = match command {
             Some(cmd) => format!("`{}`", crate::sessions::shorten(cmd, 80)),
             None => format!("the {} tool", field("tool_name")),
         };
         remember_error(app, field("error"), format!("running {what}"));
     }
-    if !lock(&state.settings).health {
-        return None;
+    if event == "PostToolUse" && command.is_some_and(is_commit_command) {
+        crate::progress::committed(app);
     }
     let check = health::evaluate(event, payload)?;
     let project_dir = field("cwd").to_string();
+    if check.passed && check.kind == health::CheckKind::Tests {
+        crate::progress::tests_passed(app, &project_dir);
+    }
+    if !lock(&state.settings).health {
+        return None;
+    }
     let change = lock(&state.health).record(&project_dir, &check);
     if !check.passed
         && let Some(output) = &check.output
@@ -150,11 +170,32 @@ pub fn on_tool_result(app: &AppHandle, event: &str, payload: &serde_json::Value)
     }
     let project = crate::sessions::project_name(&project_dir);
     let toast = match change? {
-        health::Change::NowFailing(f) => ("failed", format!("The {} are failing in {project}.", if f.kind == health::CheckKind::Tests { "tests" } else { "build steps" })),
-        health::Change::NowPassing(kind) => ("done", format!("{} pass again in {project}. Feeling better!", if kind == health::CheckKind::Tests { "Tests" } else { "The build steps" })),
+        health::Change::NowFailing(f) => {
+            crate::sounds::play(app, crate::sounds::Sound::Error);
+            ("failed", format!("The {} are failing in {project}.", if f.kind == health::CheckKind::Tests { "tests" } else { "build steps" }))
+        }
+        health::Change::NowPassing(kind) => {
+            crate::progress::fixed(app);
+            // The remembered error came from this very check failing, so it is now
+            // stale: forget it, or a later "Fix it" hands Claude the output of a run
+            // that no longer matches the files on disk.
+            {
+                let mut last = lock(&state.last_error);
+                if last.as_ref().is_some_and(|e| e.source.starts_with(&format!("failing {}", kind.noun()))) {
+                    *last = None;
+                }
+            }
+            ("done", format!("{} pass again in {project}. Feeling better!", if kind == health::CheckKind::Tests { "Tests" } else { "The build steps" }))
+        }
     };
     save_health(app);
     Some(toast)
+}
+
+/// `git commit …` (not a dry run) that succeeded.
+fn is_commit_command(command: &str) -> bool {
+    let c = command.to_lowercase();
+    c.contains("git commit") && !c.contains("--dry-run")
 }
 
 /// Shell commands Glowby's chat may run without asking, because they only read.

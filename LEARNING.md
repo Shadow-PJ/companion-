@@ -259,3 +259,69 @@ Windows won't overwrite or delete an `.exe` while it runs, and Claude Code start
 hook on every tool call. But Windows **does** allow *renaming* a running program. So the
 updater moves the old copy aside (`glowby-hook.old-….exe`), puts the new one in place,
 and deletes old copies on a later start.
+
+## Phase 3: progression
+
+### 1. An XP economy you can't farm
+
+Glowby rewards real work: a finished task that used tools (10 XP), fixing failing tests
+or builds (30), a passing test run (5), a commit (8), taking a break (5), a daily streak
+bonus (5 × streak, capped at 35). A chat-only turn gives only 2. Passing tests give XP
+at most once per 10 minutes per project, so re-running a green test suite in a loop
+earns nothing. When you design a reward system, ask "what's the cheapest way to game
+this?" and close that door.
+
+### 2. A level curve from one formula
+
+Reaching level L needs `25 · L · (L − 1)` XP in total: 0, 50, 150, 300, 500 … Each level
+costs 50 more than the last (an arithmetic series), so early levels come fast and later
+ones take steady work. `level_for(xp)` just counts up until the next threshold is out of
+reach.
+
+### 3. Evolution and cosmetics are data plus drawing code
+
+All unlockables live in one table (`COSMETICS` in `progress.rs`): id, kind, name, and a
+requirement (`Level(n)` or `Streak(n)`). Unlocking is computed from your level and best
+streak; nothing extra is stored. Settings, the right-click menu and the level-up message
+all read the same table, so they can't disagree.
+
+The four stages are layers added on top of the same jellyfish: Lantern adds a radial
+gradient "light" and rim dots, Starlit adds glowing spots and orbiting sparkles, Aurora
+rotates the colours around the colour wheel (`hueShift`, a standard RGB rotation matrix)
+over time. Hats are small drawings placed at the top of the bell, inside the same
+transform, so they bob, tilt and scale with Glowby.
+
+### 4. Time-based state without timers
+
+Energy ("ignored for days") isn't stored as a number that a timer decreases. Glowby
+stores *when you were last seen* and computes energy when it's needed:
+`100 − 30 × days away`, never below 10. The same idea gives the streak (compare today's
+date with the last coding day) and the break reminder (session start + interval). The
+only timer is the one that already existed: it sleeps until the earliest "something
+changes at this moment" deadline. Storing timestamps instead of counters is a classic
+way to avoid background work, and it survives restarts for free.
+
+### 5. Sounds from oscillators
+
+WebAudio can make sound from scratch: an `OscillatorNode` produces a wave (sine,
+triangle …) at a frequency, and a `GainNode` shapes its volume over time (an
+*envelope*: quick fade-in, smooth fade-out). Each Glowby sound is two to six such notes,
+for example C-E-G-C for "level up". No files, no licences, any pitch you like.
+
+Two Windows/Chromium details:
+
+* Browsers block sound until the user clicks the page (*autoplay policy*). Glowby's
+  WebView2 is started with `--autoplay-policy=no-user-gesture-required` so event sounds
+  can play.
+* A running `AudioContext` keeps an audio stream open, which costs CPU even in silence.
+  Glowby suspends it one second after each sound; we measured that CPU drops back to
+  0.01%.
+
+### 6. Testing visuals and state safely
+
+* `gallery.html` (dev only, `npm run vite:dev`, then open `/gallery.html`) draws every
+  stage, mood, hat, colour and emote side by side, so you can check the art without
+  playing the game for weeks.
+* To test level-ups in the real app, we backed up `progress.json`, sent fake hook events
+  worth exactly 50 XP (level 2), checked the screen, then restored the backup. Test with
+  real data paths, but leave the user's data exactly as you found it.
