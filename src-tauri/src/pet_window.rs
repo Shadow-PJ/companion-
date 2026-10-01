@@ -11,12 +11,11 @@ use std::ptr::null_mut;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP,
-    MAPVK_VK_TO_VSC, MapVirtualKeyW, SendInput, VK_LBUTTON, VK_LMENU, VK_MENU, VK_RBUTTON,
-};
+use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, SetFocus, VK_LBUTTON, VK_RBUTTON};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GWL_EXSTYLE, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindowLongPtrW, GetWindowRect, HWND_TOPMOST,
+    BringWindowToTop, GWL_EXSTYLE, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindowLongPtrW,
+    GetWindowRect, GetWindowThreadProcessId, HWND_TOPMOST,
     IsWindow, SM_SWAPBUTTON, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
     SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, WS_EX_APPWINDOW, WS_EX_LAYERED,
     WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
@@ -381,33 +380,64 @@ pub fn focus_for_typing(app: &AppHandle) {
     if previous != h {
         lock(&app.state::<AppState>().ui).prev_foreground = previous as isize;
     }
-    // Without NOACTIVATE, any click inside the chat also activates the window normally.
+    // Without NOACTIVATE, any click inside the chat also activates the window
+    // the normal way (Windows always allows activation by a real click).
     set_ex_style(h, 0, WS_EX_NOACTIVATE | WS_EX_TRANSPARENT);
-    force_foreground(h);
-    // Put keyboard focus inside the web page (WebView2 "MoveFocus").
-    if let Some(window) = app.get_webview_window(LABEL) {
-        let webview: &tauri::Webview = window.as_ref();
-        let _ = webview.set_focus();
+    let h_raw = h as isize;
+    let app2 = app.clone();
+    // Window activation must run on the thread that owns the window (the main thread).
+    let _ = app.run_on_main_thread(move || {
+        let h = h_raw as HWND;
+        let how = force_foreground(h);
+        let ex = unsafe { GetWindowLongPtrW(h, GWL_EXSTYLE) } as u32;
+        crate::applog::debug(format!(
+            "chat focus: {how}, foreground is glowby={}, exstyle=0x{ex:X}",
+            unsafe { GetForegroundWindow() } == h
+        ));
+        // Put keyboard focus inside the web page (WebView2 "MoveFocus").
+        if let Some(window) = app2.get_webview_window(LABEL) {
+            let webview: &tauri::Webview = window.as_ref();
+            let _ = webview.set_focus();
+        }
+    });
+}
+
+/// True if the active window belongs to Glowby (the pet, Settings, or a folder picker).
+pub fn glowby_is_foreground() -> bool {
+    unsafe {
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(GetForegroundWindow(), &mut pid);
+        pid == std::process::id()
     }
 }
 
-/// SetForegroundWindow, plus the well-known fallback Tauri itself uses: a
-/// synthetic Alt key tap counts as fresh input, so Windows allows the switch.
-fn force_foreground(h: HWND) {
+/// Brings Glowby to the foreground for typing.
+///
+/// Windows only lets a program take the foreground if it received the last
+/// input. If plain SetForegroundWindow is refused, we briefly *attach* our UI
+/// thread's input queue to the current foreground thread (AttachThreadInput):
+/// for that moment the two threads share input state, so the switch is allowed.
+/// (We do NOT fake an Alt key press: if that lands in Glowby, Windows enters
+/// "menu mode" and swallows everything you type.)
+fn force_foreground(h: HWND) -> &'static str {
     unsafe {
-        if GetForegroundWindow() == h || SetForegroundWindow(h) != 0 {
-            return;
+        if GetForegroundWindow() == h {
+            return "already active";
         }
-        let scan = MapVirtualKeyW(VK_MENU as u32, MAPVK_VK_TO_VSC) as u16;
-        let key = |flags| INPUT {
-            r#type: INPUT_KEYBOARD,
-            Anonymous: INPUT_0 {
-                ki: KEYBDINPUT { wVk: VK_LMENU, wScan: scan, dwFlags: flags, time: 0, dwExtraInfo: 0 },
-            },
-        };
-        let inputs = [key(KEYEVENTF_EXTENDEDKEY), key(KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP)];
-        SendInput(inputs.len() as u32, inputs.as_ptr(), std::mem::size_of::<INPUT>() as i32);
+        if SetForegroundWindow(h) != 0 && GetForegroundWindow() == h {
+            return "activated directly";
+        }
+        let fg = GetForegroundWindow();
+        let fg_thread = GetWindowThreadProcessId(fg, null_mut());
+        let my_thread = GetCurrentThreadId();
+        let attached = fg_thread != 0 && fg_thread != my_thread && AttachThreadInput(my_thread, fg_thread, 1) != 0;
+        BringWindowToTop(h);
         SetForegroundWindow(h);
+        SetFocus(h);
+        if attached {
+            AttachThreadInput(my_thread, fg_thread, 0);
+        }
+        if GetForegroundWindow() == h { "activated via AttachThreadInput" } else { "activation refused (a click in the box will do it)" }
     }
 }
 

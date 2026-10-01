@@ -36,6 +36,7 @@ pub fn answer_permission(app: AppHandle, id: u64, choice: String) {
 
 #[tauri::command]
 pub fn chat_open(app: AppHandle) {
+    crate::applog::debug("chat: open");
     lock(&app.state::<AppState>().ui).chat_open = true;
     pet_window::focus_for_typing(&app);
     state::publish(&app);
@@ -43,9 +44,17 @@ pub fn chat_open(app: AppHandle) {
 
 #[tauri::command]
 pub fn chat_close(app: AppHandle) {
+    crate::applog::debug("chat: close");
     lock(&app.state::<AppState>().ui).chat_open = false;
     pet_window::release_focus(&app);
     state::publish(&app);
+}
+
+/// Diagnostics from the pet page (focus / key events, never what you type).
+/// Only written when Glowby runs with GLOWBY_DEBUG=1.
+#[tauri::command]
+pub fn js_log(message: String) {
+    crate::applog::debug(format!("page: {}", crate::sessions::shorten(&message, 300)));
 }
 
 #[tauri::command]

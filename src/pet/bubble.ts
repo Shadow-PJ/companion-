@@ -6,6 +6,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { diag } from "../shared/diag";
 import { button, compact, el } from "../shared/dom";
 import type { PermView, PetView } from "../shared/types";
 
@@ -74,8 +75,12 @@ export class Bubble {
 
   openChat() {
     // Rust activates the window first; then the text box can take the keyboard.
+    diag("click on Glowby: opening chat");
     void invoke("chat_open").finally(() => this.chatInput.focus());
-    window.setTimeout(() => this.chatInput.focus(), 150);
+    window.setTimeout(() => {
+      this.chatInput.focus();
+      diag(`after open: page has focus=${document.hasFocus()}, active element=${document.activeElement?.tagName}, form hidden=${this.chatForm.hidden}`);
+    }, 300);
   }
 
   closeChat() {
@@ -147,7 +152,18 @@ export class Bubble {
       e.preventDefault();
       void this.send();
     });
+    let keysLogged = false;
+    this.chatInput.addEventListener("focus", () => {
+      keysLogged = false;
+      diag(`text box focused (page has focus=${document.hasFocus()})`);
+    });
+    this.chatInput.addEventListener("blur", () => diag("text box lost focus"));
+    this.chatInput.addEventListener("pointerdown", () => diag("pointer down on text box"));
     this.chatInput.addEventListener("keydown", (e) => {
+      if (!keysLogged) {
+        keysLogged = true;
+        diag("key presses are reaching the text box");
+      }
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         void this.send();

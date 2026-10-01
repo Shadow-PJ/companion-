@@ -66,8 +66,22 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if window.label() == pet_window::LABEL && matches!(event, WindowEvent::Focused(false)) {
-                let _ = window.emit_to(pet_window::LABEL, "pet://blur", ());
+            if window.label() == pet_window::LABEL
+                && let WindowEvent::Focused(focused) = event
+            {
+                applog::debug(format!("pet window focused={focused}"));
+                if !focused {
+                    // Windows reports a tiny "lost focus" blip while it hands focus from the
+                    // window frame to the web page inside it. Only treat it as "you clicked
+                    // somewhere else" if another program is still in front a moment later.
+                    let app = window.app_handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+                        if !pet_window::glowby_is_foreground() {
+                            let _ = app.emit_to(pet_window::LABEL, "pet://blur", ());
+                        }
+                    });
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -80,6 +94,7 @@ fn main() {
             commands::chat_cancel,
             commands::chat_new,
             commands::set_chat_folder,
+            commands::js_log,
             commands::drag_start,
             commands::dismiss_toast,
             commands::pet_hide,

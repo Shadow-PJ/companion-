@@ -2,6 +2,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { diag } from "../shared/diag";
 import type { PetView } from "../shared/types";
 import { Bubble } from "./bubble";
 import { BODY_X, BODY_Y, PetRenderer } from "./renderer";
@@ -70,17 +71,19 @@ stage.addEventListener("transitionend", scheduleRegions);
 // ---- click = chat, drag = move along the top edge ----
 let press: { x: number; y: number; dragging: boolean } | null = null;
 canvas.addEventListener("pointerdown", (e) => {
+  diag(`pointer down on Glowby (button ${e.button})`);
   if (e.button === 0) press = { x: e.screenX, y: e.screenY, dragging: false };
 });
 window.addEventListener("pointermove", (e) => {
   if (!press || press.dragging) return;
-  if (Math.hypot(e.screenX - press.x, e.screenY - press.y) > 6) {
+  if (Math.hypot(e.screenX - press.x, e.screenY - press.y) > 10) {
     press.dragging = true;
     void invoke("drag_start");
   }
 });
 window.addEventListener("pointerup", (e) => {
   const wasClick = press && !press.dragging && e.target === canvas;
+  if (press) diag(`pointer up: click=${!!wasClick} dragged=${press.dragging}`);
   press = null;
   if (wasClick) bubble.toggleChat();
 });

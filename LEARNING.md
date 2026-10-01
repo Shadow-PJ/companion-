@@ -153,6 +153,20 @@ needed), then checked on screen that transparency still worked before keeping th
   fallback Tauri uses internally, and focuses the web page directly. Lesson: when you
   bypass a framework for one thing, check which of its other features relied on the
   state you bypassed.
+* **…and then the chat closed itself instantly.** Diagnostics (`GLOWBY_DEBUG=1` adds
+  page events to `glowby.log`) showed the real story: the window *did* activate, but
+  while Windows hands focus from the window frame to the web page inside it, the frame
+  reports "lost focus" for about 1 ms. The "close chat when you click away" rule reacted
+  to that blip, so the chat opened and closed six times in two seconds while you clicked.
+  Fix: only treat it as "clicked away" if another program is *still* in front 600 ms
+  later. Two lessons:
+  1. Measure before fixing. Two rounds of guessing produced two plausible fixes for
+     the wrong problem; one round of logging found the real one.
+  2. Focus events are noisy. Never act on a single focus-lost event; confirm it.
+* **The Alt-key trick was removed.** Faking an Alt press to win the foreground can put
+  the window into Windows' "menu mode", which swallows typing. Glowby uses
+  `AttachThreadInput` as the fallback instead (here plain `SetForegroundWindow` already
+  worked once the window wasn't marked no-activate).
 * **The status line was invisible when idle**, so you had no idea where to hover. It's
   now always faintly visible and bright only when something happens. A UI hint that only
   appears when it's least needed isn't a hint.
