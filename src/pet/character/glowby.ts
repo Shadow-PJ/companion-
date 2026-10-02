@@ -7,7 +7,7 @@
 //   2 Starlit Glowby  – glowing crown spots, longer tentacles, drifting sparkles
 //   3 Aurora Glowby   – colour-shifting aurora bell, a trail of light
 
-import { drawFace } from "./face";
+import { drawFace, type Expr } from "./face";
 import { drawHat } from "./hats";
 import { hueShift, type Mood, type MoodStyle, type RGB, rgba } from "./palette";
 
@@ -40,8 +40,38 @@ export interface Frame {
   x: number;
   y: number;
   appearance: LookInput;
-  /** An emote playing right now, with progress 0..1. */
+  /** An emote (or idle action, "idle-…") playing right now, with progress 0..1. */
   emote: { id: string; p: number } | null;
+  /** 0..1 while you're petting him with the mouse. */
+  petting: number;
+}
+
+export type { Expr };
+
+/** A face that overrides the mood's face for a moment (emotes, petting). */
+export function expressionFor(f: Frame): Expr | null {
+  if (f.petting > 0.05) return "love";
+  switch (f.emote?.id) {
+    case "heart":
+      return "love";
+    case "laugh":
+    case "cheer":
+    case "fireworks":
+      return "laugh";
+    case "peace":
+      return "wink";
+    case "shy":
+      return "shy";
+    case "sparkle":
+      return "star";
+    case "wave":
+    case "jump":
+    case "dance":
+    case "spin":
+      return "happy";
+    default:
+      return null;
+  }
 }
 
 export const BELL_HALF_WIDTH = 34;
@@ -64,9 +94,10 @@ function bellPath(ctx: CanvasRenderingContext2D, x: number, y: number, halfWidth
 
 const easeInOut = (p: number) => (p < 0.5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2);
 
-/** Body language shared by every look (jellyfish or imported character):
- *  bobbing, mood wiggles and emote moves. */
-export function bodyMotion(f: Frame): Motion {
+/** Body language shared by every look (jellyfish, anime pets, imported characters):
+ *  bobbing, mood wiggles and emote moves. `hasArms`: pets with arms wave with a
+ *  paw instead of tilting their whole body. */
+export function bodyMotion(f: Frame, hasArms = false): Motion {
   const s = f.style;
   const pulseAmp = s.pulseAmp * (f.appearance.weak ? 0.5 : 1);
   const pulse = Math.sin(f.t * Math.PI * 2 * s.pulseHz);
@@ -87,7 +118,36 @@ export function bodyMotion(f: Frame): Motion {
     const fade = 1 - e.p;
     switch (e.id) {
       case "wave":
-        rotation += Math.sin(e.p * Math.PI * 6) * 0.2 * fade;
+        if (!hasArms) rotation += Math.sin(e.p * Math.PI * 6) * 0.2 * fade;
+        break;
+      case "jump": {
+        // crouch, leap, land
+        const p = e.p;
+        if (p < 0.15) squash = 1 - 0.14 * Math.sin((p / 0.15) * Math.PI);
+        else if (p < 0.85) y -= Math.sin(((p - 0.15) / 0.7) * Math.PI) * 24;
+        else squash = 1 - 0.1 * Math.sin(((p - 0.85) / 0.15) * Math.PI);
+        break;
+      }
+      case "cheer":
+      case "sparkle":
+        y -= Math.abs(Math.sin(e.p * Math.PI * 4)) * 6 * fade;
+        break;
+      case "laugh":
+        x += Math.sin(e.p * 70) * 1.2 * fade;
+        y -= Math.abs(Math.sin(e.p * Math.PI * 6)) * 2.5;
+        break;
+      case "peace":
+        rotation += Math.sin(e.p * Math.PI) * 0.12;
+        break;
+      case "shy":
+        rotation += Math.sin(e.p * Math.PI * 3) * 0.06;
+        x += Math.sin(e.p * Math.PI * 3) * 2;
+        break;
+      case "idle-hop":
+        y -= Math.abs(Math.sin(e.p * Math.PI * 2)) * 7;
+        break;
+      case "idle-stretch":
+        squash = 1 + Math.sin(e.p * Math.PI) * 0.09;
         break;
       case "spin":
         rotation += Math.PI * 2 * easeInOut(e.p);
@@ -103,6 +163,11 @@ export function bodyMotion(f: Frame): Motion {
         y -= Math.sin(e.p * Math.PI) * 4;
         break;
     }
+  }
+  // Being petted: a happy little squish.
+  if (f.petting > 0) {
+    squash *= 1 - Math.abs(Math.sin(f.t * 9)) * 0.05 * f.petting;
+    y += f.petting;
   }
   return { x, y, rotation, squash, pulse, pulseAmp };
 }
@@ -235,7 +300,7 @@ export function drawGlowby(ctx: CanvasRenderingContext2D, f: Frame) {
     }
   }
 
-  drawFace(ctx, x, y - 2, { mood: f.mood, look: f.look, open: f.open });
+  drawFace(ctx, x, y - 2, { mood: f.mood, look: f.look, open: f.open, expr: expressionFor(f) });
   if (f.appearance.hat) drawHat(ctx, f.appearance.hat, x, y - 28, f.t);
   ctx.restore();
 
@@ -274,6 +339,17 @@ function heart(ctx: CanvasRenderingContext2D, x: number, y: number, size: number
   ctx.moveTo(x, y + size * 0.35);
   ctx.bezierCurveTo(x - size, y - size * 0.4, x - size * 0.4, y - size, x, y - size * 0.45);
   ctx.bezierCurveTo(x + size * 0.4, y - size, x + size, y - size * 0.4, x, y + size * 0.35);
+  ctx.fill();
+}
+
+export function star4(ctx: CanvasRenderingContext2D, x: number, y: number, r: number) {
+  if (r <= 0) return;
+  ctx.beginPath();
+  ctx.moveTo(x, y - r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.quadraticCurveTo(x, y, x, y + r);
+  ctx.quadraticCurveTo(x, y, x - r, y);
+  ctx.quadraticCurveTo(x, y, x, y - r);
   ctx.fill();
 }
 
@@ -316,6 +392,44 @@ export function drawEmoteExtras(ctx: CanvasRenderingContext2D, e: { id: string; 
           ctx.stroke();
         }
       });
+      break;
+    }
+    case "cheer":
+    case "sparkle": {
+      // twinkling four-point stars around
+      const colors = e.id === "cheer" ? ["#FAC775", "#ED93B1", "#7F9BFF"] : ["#FFFFFF", "#FFF3B0", "#CFE3FF"];
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2 + e.p * 2;
+        const r = 40 + Math.sin(e.p * Math.PI * 3 + i) * 6;
+        const s = (2.5 + 2 * Math.abs(Math.sin(e.p * Math.PI * 5 + i))) * fade;
+        ctx.fillStyle = colors[i % colors.length];
+        star4(ctx, x + Math.cos(a) * r, y - 6 + Math.sin(a) * r * 0.8, s);
+      }
+      break;
+    }
+    case "laugh": {
+      ctx.fillStyle = `rgba(242,177,60,${fade})`;
+      ctx.font = "700 12px 'Segoe UI', sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("ha", x - 38, y - 18 - e.p * 16);
+      ctx.fillText("ha!", x + 40, y - 26 - e.p * 18);
+      break;
+    }
+    case "peace": {
+      ctx.fillStyle = `rgba(250,199,117,${fade})`;
+      star4(ctx, x + 36, y - 30, 4 * Math.sin(e.p * Math.PI));
+      break;
+    }
+    case "jump": {
+      if (e.p > 0.82) {
+        // dust puffs on landing
+        ctx.fillStyle = `rgba(200,205,225,${(1 - e.p) * 3})`;
+        for (const side of [-1, 1]) {
+          ctx.beginPath();
+          ctx.arc(x + side * (24 + (e.p - 0.82) * 60), y + 52, 4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
       break;
     }
     case "wave": {

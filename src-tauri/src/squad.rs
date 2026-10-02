@@ -46,6 +46,8 @@ pub struct Member {
     pub last_seen: String,
     /// An imported character's id, or "" for a little jellyfish.
     pub character: String,
+    /// An anime pet ("neko" …), or "" for a little jellyfish (a character wins).
+    pub species: String,
     pub color: String,
     /// The chat's own copy of this session (made with `--fork-session`), so
     /// follow-up questions continue there and never touch your running session.
@@ -184,6 +186,7 @@ pub struct SquadView {
     /// Minutes since Glowby first saw this session today.
     pub minutes: u64,
     pub character: String,
+    pub species: String,
     pub color: String,
     pub has_chat: bool,
 }
@@ -265,7 +268,13 @@ fn celebrate(app: &AppHandle, id: &str, level: u32) {
 }
 
 /// The pets to show: one per live session, oldest session first.
-pub fn views(app: &AppHandle, live: &[SessionInfo], max: usize, known_character: impl Fn(&str) -> bool) -> Vec<SquadView> {
+pub fn views(
+    app: &AppHandle,
+    live: &[SessionInfo],
+    max: usize,
+    known_character: impl Fn(&str) -> bool,
+    pet_ok: impl Fn(&str) -> bool,
+) -> Vec<SquadView> {
     let state = app.state::<AppState>();
     let now = Instant::now();
     let stamp = Local::now().to_rfc3339();
@@ -295,6 +304,7 @@ pub fn views(app: &AppHandle, live: &[SessionInfo], max: usize, known_character:
                 tools: m.tools,
                 minutes: now.duration_since(s.started).as_secs() / 60,
                 character: if known_character(&m.character) { m.character.clone() } else { String::new() },
+                species: if pet_ok(&m.species) { m.species.clone() } else { String::new() },
                 color: m.color.clone(),
                 has_chat: !m.fork.is_empty(),
             }
@@ -302,16 +312,21 @@ pub fn views(app: &AppHandle, live: &[SessionInfo], max: usize, known_character:
         .collect()
 }
 
-/// "Look" chips on a squad pet's card: a jellyfish or one of your characters.
-pub fn set_look(app: &AppHandle, id: &str, character: &str) -> Result<(), String> {
+/// "Look" chips on a squad pet's card: a jellyfish, an anime pet you've
+/// unlocked, or one of your characters.
+pub fn set_look(app: &AppHandle, id: &str, character: &str, species: &str) -> Result<(), String> {
     let state = app.state::<AppState>();
     if !character.is_empty() && !lock(&state.characters).exists(character) {
         return Err("No such character.".into());
+    }
+    if !species.is_empty() && !crate::progress::pet_unlocked(&lock(&state.progress), species) {
+        return Err("That pet isn't unlocked yet.".into());
     }
     {
         let mut squad = lock(&state.squad);
         let m = squad.members.get_mut(id).ok_or("That session is gone.")?;
         m.character = character.to_string();
+        m.species = species.to_string();
     }
     save(app);
     state::publish(app);

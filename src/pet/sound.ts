@@ -78,6 +78,11 @@ export function playSound(name: string, volume: number): number {
       tone(c, out, 520, t + 0.45, 0.5, "sine", 0.3, 360);
       length = 1.0;
       break;
+    case "pet": // a soft purr and a happy chirp
+      for (let i = 0; i < 5; i++) tone(c, out, 110 + (i % 2) * 8, t + i * 0.085, 0.09, "triangle", 0.35);
+      tone(c, out, 880, t + 0.46, 0.14, "sine", 0.3, 1175);
+      length = 0.65;
+      break;
     case "boop": // emote
       tone(c, out, 700, t, 0.12, "sine", 0.4, 920);
       length = 0.2;

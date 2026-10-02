@@ -141,6 +141,8 @@ pub struct PetView {
     pub squad: Vec<crate::squad::SquadView>,
     /// Your imported characters (id + name), for the squad pets' "Look" choice.
     pub characters: Vec<ActionView>,
+    /// Anime pets you've unlocked (id + name).
+    pub pets: Vec<ActionView>,
     pub follow_mouse: bool,
     pub hooks_installed: bool,
     pub game_active: bool,
@@ -255,7 +257,12 @@ fn view_and_deadline(app: &AppHandle) -> (PetView, Option<Instant>) {
     let characters: Vec<ActionView> =
         lock(&state.characters).list.iter().map(|c| ActionView { id: c.id.clone(), label: c.name.clone() }).collect();
     let known_character = |id: &str| characters.iter().any(|c| c.id == id);
-    let squad = crate::squad::views(app, &live, settings.squad.max_shown as usize, known_character);
+    let pets: Vec<ActionView> = crate::progress::unlocked_pets(&lock(&state.progress))
+        .into_iter()
+        .map(|(id, label)| ActionView { id: id.into(), label: label.into() })
+        .collect();
+    let pet_ok = |id: &str| pets.iter().any(|p| p.id == id);
+    let squad = crate::squad::views(app, &live, settings.squad.max_shown as usize, known_character, pet_ok);
     let chat_view = chat::view(&state, &settings);
     let failing = if settings.health { lock(&state.health).latest().cloned() } else { None };
     let wall_now = chrono::Local::now();
@@ -349,6 +356,7 @@ fn view_and_deadline(app: &AppHandle) -> (PetView, Option<Instant>) {
         quiz,
         squad,
         characters,
+        pets,
         follow_mouse: settings.pet.follow_mouse,
         hooks_installed: ui.hooks_installed,
         game_active: ui.game_active,

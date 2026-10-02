@@ -20,6 +20,9 @@ pub const FIX_XP: u32 = 30;
 pub const TESTS_PASSED_XP: u32 = 5;
 pub const COMMIT_XP: u32 = 8;
 pub const BREAK_XP: u32 = 5;
+pub const PET_XP: u32 = 2;
+/// Petting gives XP at most this often (it's for fun, not farming).
+const PET_XP_COOLDOWN_MINS: i64 = 5;
 /// Passing tests give XP at most this often per project (no farming by re-running).
 const TEST_XP_COOLDOWN_MINS: i64 = 10;
 
@@ -38,6 +41,8 @@ pub struct Progress {
     pub stats: Stats,
     /// Project folder → when tests-passed XP was last given.
     pub last_test_xp: BTreeMap<String, String>,
+    /// When petting last gave XP (RFC 3339).
+    pub last_pet_xp: String,
 }
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug)]
@@ -48,6 +53,7 @@ pub struct Stats {
     pub tests_passed: u32,
     pub commits: u32,
     pub breaks: u32,
+    pub pets: u32,
 }
 
 /// Evolution stages: (first level, name).
@@ -85,6 +91,8 @@ pub enum Kind {
     Emote,
     /// Power-up effects drawn around Glowby or your imported character.
     Aura,
+    /// Anime-style pets (drawn in code) you can switch Glowby to.
+    Pet,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -110,6 +118,17 @@ pub const COSMETICS: &[Cosmetic] = &[
     c("spin", Kind::Emote, "Spin", Needs::Level(6)),
     c("dance", Kind::Emote, "Dance", Needs::Level(9)),
     c("fireworks", Kind::Emote, "Fireworks", Needs::Level(18)),
+    c("jump", Kind::Emote, "Jump", Needs::Level(2)),
+    c("cheer", Kind::Emote, "Cheer", Needs::Level(4)),
+    c("laugh", Kind::Emote, "Laugh", Needs::Level(5)),
+    c("peace", Kind::Emote, "Peace sign", Needs::Level(7)),
+    c("shy", Kind::Emote, "Shy", Needs::Level(10)),
+    c("sparkle", Kind::Emote, "Sparkle eyes", Needs::Level(14)),
+    c("neko", Kind::Pet, "Neko", Needs::Level(1)),
+    c("slime", Kind::Pet, "Slime", Needs::Level(2)),
+    c("kitsune", Kind::Pet, "Kitsune", Needs::Level(3)),
+    c("ninja", Kind::Pet, "Mini Ninja", Needs::Level(5)),
+    c("mecha", Kind::Pet, "Mini Robot", Needs::Level(8)),
     c("sprout", Kind::Hat, "Sprout", Needs::Level(2)),
     c("party", Kind::Hat, "Party hat", Needs::Level(4)),
     c("beanie", Kind::Hat, "Cozy beanie", Needs::Streak(3)),
@@ -232,6 +251,8 @@ pub struct Look {
     pub aura: String,
     /// An imported character instead of the jellyfish ("" = jellyfish).
     pub character: String,
+    /// An anime pet instead of the jellyfish ("" = jellyfish; a character wins).
+    pub species: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -288,7 +309,18 @@ pub fn look(p: &Progress, settings: &Settings, now: DateTime<Local>) -> Look {
         aura: if ok(&settings.progression.aura, Kind::Aura) { settings.progression.aura.clone() } else { String::new() },
         // Checked against your imported characters by the caller.
         character: settings.pet.character.clone(),
+        species: if ok(&settings.progression.pet, Kind::Pet) { settings.progression.pet.clone() } else { String::new() },
     }
+}
+
+/// Anime pets you've unlocked (id, name), for the squad pets' "Look" choice.
+pub fn unlocked_pets(p: &Progress) -> Vec<(&'static str, &'static str)> {
+    let level = p.level();
+    COSMETICS.iter().filter(|c| c.kind == Kind::Pet && is_unlocked(c, level, p.best_streak)).map(|c| (c.id, c.name)).collect()
+}
+
+pub fn pet_unlocked(p: &Progress, id: &str) -> bool {
+    unlocked_pets(p).iter().any(|(pet, _)| *pet == id)
 }
 
 pub fn unlocked_emotes(p: &Progress) -> Vec<(&'static str, &'static str)> {
@@ -427,6 +459,31 @@ pub fn took_break(app: &AppHandle) {
     crate::quests::progress(app, "break", 1);
 }
 
+/// You petted Glowby: a purr, a bit of energy, a quest step, and a little XP
+/// (at most every few minutes).
+pub fn petted(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let now = Local::now();
+    let give_xp = {
+        let mut p = lock(&state.progress);
+        p.stats.pets += 1;
+        let recent = DateTime::parse_from_rfc3339(&p.last_pet_xp)
+            .is_ok_and(|t| (now - t.with_timezone(&Local)).num_minutes() < PET_XP_COOLDOWN_MINS);
+        if !recent {
+            p.last_pet_xp = now.to_rfc3339();
+        }
+        !recent
+    };
+    sounds::play(app, Sound::Pet);
+    crate::quests::progress(app, "pet", 1);
+    activity(app, false); // counts as spending time with him (energy, "missed you")
+    if give_xp {
+        award(app, PET_XP, "petted");
+    } else {
+        save(app);
+    }
+}
+
 /// Passing tests: XP at most once per cooldown per project.
 pub fn tests_passed(app: &AppHandle, project_dir: &str) {
     let state = app.state::<AppState>();
@@ -500,6 +557,20 @@ mod tests {
         let a = p.add_xp(threshold(4) as u32);
         assert!(a.unlocked.contains(&"Flame aura"));
         assert_eq!(look(&p, &settings, now).aura, "flame");
+    }
+
+    #[test]
+    fn anime_pets_unlock_with_levels() {
+        let mut settings = Settings::default();
+        settings.progression.pet = "kitsune".into();
+        let now = Local::now();
+        let mut p = Progress::default();
+        assert!(pet_unlocked(&p, "neko"), "Neko is there from the start");
+        assert_eq!(look(&p, &settings, now).species, "", "Kitsune needs level 3");
+        let a = p.add_xp(threshold(3) as u32);
+        assert!(a.unlocked.contains(&"Kitsune") && a.unlocked.contains(&"Slime"));
+        assert_eq!(look(&p, &settings, now).species, "kitsune");
+        assert!(!pet_unlocked(&p, "mecha"));
     }
 
     #[test]

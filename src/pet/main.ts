@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { diag } from "../shared/diag";
 import type { PetView } from "../shared/types";
 import { Bubble } from "./bubble";
+import { strokeDetector } from "./petting";
 import { keepOnly } from "./character/images";
 import { BODY_X, PetRenderer } from "./renderer";
 import { playSound } from "./sound";
@@ -111,6 +112,27 @@ squadCanvas.addEventListener("click", (e) => {
   if (id) bubble.toggleSquad(id);
   squad.selected = bubble.squadSelected;
 });
+// ---- petting: stroke back and forth over a pet (no button pressed) ----
+let lastStroke = 0;
+canvas.addEventListener(
+  "pointermove",
+  strokeDetector(() => {
+    renderer.pet();
+    const now = performance.now();
+    // one "petting" per session (a pause of 3 s starts a new one); Rust limits the XP
+    if (now - lastStroke > 3000) void invoke("pet_petted");
+    lastStroke = now;
+  }),
+);
+squadCanvas.addEventListener(
+  "pointermove",
+  strokeDetector((x, y) => {
+    const r = squadCanvas.getBoundingClientRect();
+    const id = squad.hit(x - r.left, y - r.top);
+    if (id) squad.pet(id);
+  }),
+);
+
 // Right-click Glowby = quick actions. No browser context menu anywhere.
 window.addEventListener("contextmenu", (e) => e.preventDefault());
 canvas.addEventListener("contextmenu", () => bubble.toggleMenu());

@@ -3,6 +3,7 @@
 // animation frame (no second loop), and only while Glowby is visible.
 
 import { AVATAR_R, drawAvatar } from "./character/avatar";
+import { drawChibi, SPECIES } from "./character/chibi";
 import { drawGlowby, type Frame } from "./character/glowby";
 import { characterImage } from "./character/images";
 import { blendStyle, type Mood, type MoodStyle, styleFor } from "./character/palette";
@@ -24,6 +25,7 @@ interface Live {
   moodSince: number;
   emote: { id: string; start: number } | null;
   floater: { text: string; start: number } | null;
+  petUntil: number;
 }
 
 export class Squad {
@@ -57,6 +59,12 @@ export class Squad {
     return this.slots().find((s) => x >= s.x && x <= s.x + s.w && y >= s.y && y <= s.y + s.h)?.id ?? null;
   }
 
+  /** You're stroking this squad pet with the mouse. */
+  pet(id: string) {
+    const l = this.live.get(id);
+    if (l) l.petUntil = performance.now() / 1000 + 0.9;
+  }
+
   /** "Lv 3!" over a pet that just levelled up, with a little spin. */
   levelUp(id: string, text: string) {
     const l = this.live.get(id);
@@ -77,7 +85,7 @@ export class Squad {
   private drawMember(ctx: CanvasRenderingContext2D, m: SquadMember, cx: number, t: number, dt: number) {
     let l = this.live.get(m.id);
     if (!l) {
-      l = { style: styleFor(m.mood, m.color), mood: m.mood, moodSince: t, emote: null, floater: null };
+      l = { style: styleFor(m.mood, m.color), mood: m.mood, moodSince: t, emote: null, floater: null, petUntil: 0 };
       this.live.set(m.id, l);
     }
     if (l.mood !== m.mood) {
@@ -105,7 +113,9 @@ export class Squad {
     ctx.save();
     ctx.translate(cx, PET_Y);
     ctx.scale(SCALE, SCALE);
+    const petting = Math.max(0, Math.min(1, (l.petUntil - t) / 0.9));
     const frame: Frame = {
+      petting,
       t: t + cx * 0.01, // each pet bobs on its own beat
       moodAge: t - l.moodSince,
       mood: m.mood,
@@ -118,8 +128,23 @@ export class Squad {
       emote,
     };
     if (m.character) drawAvatar(ctx, frame, characterImage(m.character));
+    else if (SPECIES[m.species]) drawChibi(ctx, frame, m.species, m.color);
     else drawGlowby(ctx, frame);
     ctx.restore();
+    if (petting > 0.2) {
+      // a little heart above a petted pet
+      ctx.save();
+      ctx.globalAlpha = petting;
+      ctx.fillStyle = "#F06E96";
+      const hx = cx + 14;
+      const hy = PET_Y - 22 - (1 - petting) * 8;
+      ctx.beginPath();
+      ctx.moveTo(hx, hy + 1.6);
+      ctx.bezierCurveTo(hx - 4.5, hy - 1.8, hx - 1.8, hy - 4.5, hx, hy - 2);
+      ctx.bezierCurveTo(hx + 1.8, hy - 4.5, hx + 4.5, hy - 1.8, hx, hy + 1.6);
+      ctx.fill();
+      ctx.restore();
+    }
 
     // Name and level under the pet.
     const labelY = m.character ? PET_Y + AVATAR_R * SCALE + 16 : PET_Y + 50;

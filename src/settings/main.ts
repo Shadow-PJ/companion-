@@ -6,7 +6,7 @@ import { setCharacterImage } from "../pet/character/images";
 import { DEFAULT_APPEARANCE, PetRenderer } from "../pet/renderer";
 import { playSound } from "../pet/sound";
 import { button, compact, el } from "../shared/dom";
-import type { AppInfo, CharacterInfo, ChatMode, GithubStatus, HooksPreview, HooksStatus, Look, MonitorInfo, ProgressInfo, Settings } from "../shared/types";
+import type { AppInfo, CharacterInfo, ChatMode, CosmeticView, GithubStatus, HooksPreview, HooksStatus, Look, MonitorInfo, ProgressInfo, Settings } from "../shared/types";
 import { crop, nameFromFile } from "./cropper";
 
 const app = document.getElementById("app")!;
@@ -349,6 +349,7 @@ function chosenLook(info: ProgressInfo): Look {
     color: owned(settings.progression.color) ? settings.progression.color : "periwinkle",
     aura: owned(settings.progression.aura) ? settings.progression.aura : "",
     character: characters.some((c) => c.id === settings.pet.character) ? settings.pet.character : "",
+    species: owned(settings.progression.pet) ? settings.progression.pet : "",
   };
 }
 
@@ -421,7 +422,10 @@ async function progressSection() {
           el("div", { class: "hint", text: `Streak: ${v.streak} day${v.streak === 1 ? "" : "s"} (best ${info.bestStreak}) · Energy ${v.energy}%` }),
           el(
             "div",
-            { class: "hint", text: `Tasks ${info.stats.tasks} · Fixes ${info.stats.fixes} · Test runs passed ${info.stats.testsPassed} · Commits ${info.stats.commits} · Breaks ${info.stats.breaks}` },
+            {
+              class: "hint",
+              text: `Tasks ${info.stats.tasks} · Fixes ${info.stats.fixes} · Test runs passed ${info.stats.testsPassed} · Commits ${info.stats.commits} · Breaks ${info.stats.breaks} · Petted ${info.stats.pets ?? 0} times`,
+            },
           ),
         ),
       ),
@@ -455,9 +459,22 @@ function charactersSection() {
   const cropHost = el("div", { class: "crop-host", hidden: true });
   const message = el("div", { class: "hint" });
   let current: Look = { ...DEFAULT_APPEARANCE };
+  /** The anime pets (unlocked or not) from Glowby's progress. */
+  let pets: CosmeticView[] = [];
 
-  function use(id: string) {
-    settings.pet.character = id;
+  /** What Glowby wears now: "" (jellyfish), "p:<pet>" or "c:<character>". */
+  function currentKey() {
+    if (characters.some((c) => c.id === settings.pet.character)) return `c:${settings.pet.character}`;
+    if (pets.some((p) => p.id === settings.progression.pet && p.unlocked)) return `p:${settings.progression.pet}`;
+    return "";
+  }
+
+  function use(key: string) {
+    if (key.startsWith("c:")) settings.pet.character = key.slice(2);
+    else {
+      settings.pet.character = "";
+      settings.progression.pet = key.startsWith("p:") ? key.slice(2) : "";
+    }
     save();
     renderGrid();
     refreshProgress();
@@ -476,20 +493,23 @@ function charactersSection() {
   }
 
   function renderGrid() {
-    const tile = (id: string, label: Node, ...extra: Node[]) =>
+    const now = currentKey();
+    const tile = (key: string, look: Partial<Look>, label: Node, faded: boolean, ...extra: Node[]) =>
       el(
         "div",
-        { class: "char" + (settings.pet.character === id ? " current" : "") },
-        canvasPreview({ ...current, character: id }, "happy"),
+        { class: "char" + (now === key ? " current" : "") },
+        canvasPreview({ ...current, character: "", species: "", ...look }, "happy", faded),
         label,
         el("div", { class: "actions" }, ...extra),
       );
-    const jellyInUse = settings.pet.character === "";
-    const jelly = tile(
-      "",
-      el("div", { class: "char-name", text: "Glowby (jellyfish)" }),
-      button(jellyInUse ? "In use" : "Use", jellyInUse ? "primary" : "", () => use("")),
-    );
+    const useButton = (key: string, label = "Use") => button(now === key ? "In use" : label, now === key ? "primary" : "", () => use(key));
+    const jelly = tile("", {}, el("div", { class: "char-name", text: "Glowby (jellyfish)" }), false, useButton(""));
+    const petTiles = pets.map((p) => {
+      const key = `p:${p.id}`;
+      const action = p.unlocked ? useButton(key) : button(`Unlocks at ${p.requirement}`, "", () => {});
+      if (!p.unlocked) (action as HTMLButtonElement).disabled = true;
+      return tile(key, { species: p.id }, el("div", { class: "char-name", text: p.name }), !p.unlocked, action);
+    });
     const tiles = characters.map((c) => {
       const name = el("input", { type: "text", class: "text char-name", value: c.name, maxlength: 40, title: "Rename" });
       name.addEventListener("change", async () => {
@@ -514,10 +534,9 @@ function charactersSection() {
           removeBtn.textContent = "Remove";
         }, 4000);
       });
-      const inUse = settings.pet.character === c.id;
-      return tile(c.id, name, button(inUse ? "In use" : "Use for Glowby", inUse ? "primary" : "", () => use(c.id)), removeBtn);
+      return tile(`c:${c.id}`, { character: c.id }, name, false, useButton(`c:${c.id}`, "Use for Glowby"), removeBtn);
     });
-    grid.replaceChildren(jelly, ...tiles);
+    grid.replaceChildren(jelly, ...petTiles, ...tiles);
   }
 
   async function importPicture() {
@@ -546,20 +565,21 @@ function charactersSection() {
       setCharacterImage(info.id, await createImageBitmap(result.png));
       characters = [...characters, info];
       message.textContent = `${info.name} is ready and now in use. Pick another look anytime.`;
-      use(info.id);
+      use(`c:${info.id}`);
     } catch (e) {
       message.textContent = String(e);
     }
   }
 
   void invoke<ProgressInfo>("get_progress").then((info) => {
-    current = { ...chosenLook(info), character: "" };
+    current = { ...chosenLook(info), character: "", species: "" };
+    pets = info.cosmetics.filter((c) => c.kind === "pet");
     renderGrid();
   });
   renderGrid();
   return section(
-    "Characters",
-    "Import a picture of any character you like: an anime hero, a game character, your cat. Glowby wears it as a small round icon, with all his moods, hats, emotes and auras. Pictures stay in Glowby's data folder on this PC, and Glowby ships none of its own. Squad pets can wear them too.",
+    "Pets and characters",
+    "Pick who lives at the top of your screen: Glowby the jellyfish, one of his anime-style friends (new ones unlock as you level up), or a picture of any character you like (an anime hero, a game character, your cat) shown as a round icon. They all have Glowby's moods, hats, emotes and auras. Stroke them with the mouse to pet them! Pictures stay on this PC; squad pets can wear all of these too.",
     el("div", { class: "actions" }, button("Import a picture…", "primary", () => void importPicture())),
     cropHost,
     message,
@@ -633,6 +653,7 @@ const QUEST_KINDS: [string, string][] = [
   ["commit", "Make commits"],
   ["learn", "Answer learn-mode questions (needs learn mode)"],
   ["break", "Take breaks (needs break reminders)"],
+  ["pet", "Pet Glowby (stroke him with the mouse)"],
 ];
 
 async function questsSection() {

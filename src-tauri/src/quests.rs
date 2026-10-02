@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
 
-pub const ALL_KINDS: &[&str] = &["fix", "test", "minutes", "tasks", "commit", "learn", "break"];
+pub const ALL_KINDS: &[&str] = &["fix", "test", "minutes", "tasks", "commit", "learn", "break", "pet"];
 const ALL_DONE_BONUS: u32 = 20;
 /// Gaps longer than this between events don't count as coding time.
 const MAX_TICK_GAP_SECS: i64 = 5 * 60;
@@ -57,6 +57,7 @@ pub fn target_for(kind: &str, d: Difficulty) -> u32 {
         "commit" => (1, 2, 4),
         "learn" => (1, 2, 3),
         "break" => (1, 1, 2),
+        "pet" => (2, 3, 5),
         _ => (1, 1, 1),
     };
     match d {
@@ -84,6 +85,7 @@ pub fn label(kind: &str, n: u32) -> String {
         "commit" => format!("Make {n} commit{s}"),
         "learn" => format!("Answer {n} learn-mode question{s} right"),
         "break" => format!("Take {n} break{s}"),
+        "pet" => format!("Pet Glowby {n} time{s}"),
         other => other.to_string(),
     }
 }

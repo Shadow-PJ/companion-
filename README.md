@@ -71,6 +71,14 @@ Enter, and put a shortcut to `Glowby.exe` in the folder that opens.
 
 * **XP and levels** from finished tasks, fixes, passing tests and commits. Glowby
   evolves at levels 6, 15 and 30.
+* **Anime-style pets:** switch Glowby for one of his friends: **Neko** (a cat),
+  **Kitsune** (a fox spirit), **Slime**, **Mini Ninja** or **Mini Robot**. New ones
+  unlock as you level up (Settings → Pets and characters).
+* **They're alive:** pets wave hello when they slide out, look around, stretch, hop and
+  wag their tails. Emotes: wave, jump, cheer, laugh, peace sign, shy, sparkle eyes,
+  hearts, spin, dance and fireworks.
+* **Petting:** stroke your pet with the mouse (move back and forth over him). He purrs,
+  blushes and sends hearts, and it counts for a daily quest.
 * **Unlockables:** hats, colours, emotes, and power-up **auras** (flames, golden
   power-up, cursed energy, infinity rings …).
 * **Your own characters:** Settings → Characters → **Import a picture…** and Glowby wears

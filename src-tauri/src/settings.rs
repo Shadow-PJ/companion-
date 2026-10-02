@@ -97,7 +97,7 @@ impl Default for QuestSettings {
             enabled: true,
             difficulty: Difficulty::Normal,
             per_day: 3,
-            kinds: ["fix", "test", "minutes", "tasks", "commit", "learn", "break"].map(String::from).to_vec(),
+            kinds: ["fix", "test", "minutes", "tasks", "commit", "learn", "break", "pet"].map(String::from).to_vec(),
         }
     }
 }
@@ -127,11 +127,13 @@ pub struct ProgressionSettings {
     pub hat: String,
     pub color: String,
     pub aura: String,
+    /// Anime pet ("neko", "kitsune" …; "" = Glowby the jellyfish).
+    pub pet: String,
 }
 
 impl Default for ProgressionSettings {
     fn default() -> Self {
-        Self { enabled: true, neglect: true, hat: String::new(), color: "periwinkle".into(), aura: String::new() }
+        Self { enabled: true, neglect: true, hat: String::new(), color: "periwinkle".into(), aura: String::new(), pet: String::new() }
     }
 }
 

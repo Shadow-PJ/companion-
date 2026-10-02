@@ -100,3 +100,23 @@ row(
     ["Cursed energy", "idle", { character: "test", stage: 1, aura: "cursed", hat: "wizard" }, "live"],
   ],
 );
+for (const sp of ["neko", "kitsune", "slime", "ninja", "mecha"]) {
+  row(
+    `Pet: ${sp} (moods)`,
+    (["idle", "working", "happy", "alert", "sleepy", "sick"] as Mood[]).map((m) => [m, m, { species: sp, stage: 1 }]),
+  );
+}
+row(
+  "Pet emotes (animated, Neko)",
+  ["wave", "cheer", "jump", "laugh", "peace", "shy", "sparkle", "heart", "dance"].map((e) => [e, "idle", { species: "neko" }, e]),
+);
+row(
+  "Pets: stages, hats, auras",
+  [
+    ["Kitsune L0", "idle", { species: "kitsune", stage: 0 }],
+    ["Kitsune + flame", "happy", { species: "kitsune", stage: 2, aura: "flame" }, "live"],
+    ["Ninja + crown", "idle", { species: "ninja", stage: 1, hat: "crown" }, "live"],
+    ["Robot + infinity", "working", { species: "mecha", stage: 3, aura: "infinity" }, "live"],
+    ["Slime (mint)", "idle", { species: "slime", color: "mint", stage: 1 }, "live"],
+  ],
+);

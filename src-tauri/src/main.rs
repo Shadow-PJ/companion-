@@ -140,6 +140,7 @@ fn main() {
             commands::github_check_now,
             commands::squad_chat_open,
             commands::squad_set_look,
+            commands::pet_petted,
             commands::characters_list,
             commands::character_read_source,
             commands::character_add,

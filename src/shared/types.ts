@@ -45,13 +45,15 @@ export interface Look {
   weak: boolean;
   /** Power-up effect around Glowby ("" = none). */
   aura: string;
-  /** Imported character id ("" = the jellyfish). */
+  /** Imported character id ("" = none). Wins over `species`. */
   character: string;
+  /** Anime pet id ("" = Glowby the jellyfish). */
+  species: string;
 }
 
 export interface CosmeticView {
   id: string;
-  kind: "hat" | "color" | "emote" | "aura";
+  kind: "hat" | "color" | "emote" | "aura" | "pet";
   name: string;
   unlocked: boolean;
   requirement: string;
@@ -60,7 +62,7 @@ export interface CosmeticView {
 export interface ProgressInfo {
   view: ProgressView;
   look: Look;
-  stats: { tasks: number; fixes: number; testsPassed: number; commits: number; breaks: number };
+  stats: { tasks: number; fixes: number; testsPassed: number; commits: number; breaks: number; pets?: number };
   bestStreak: number;
   stages: [number, string][];
   cosmetics: CosmeticView[];
@@ -154,6 +156,7 @@ export interface SquadMember {
   tools: number;
   minutes: number;
   character: string;
+  species: string;
   color: string;
   hasChat: boolean;
 }
@@ -183,6 +186,8 @@ export interface PetView {
   squad: SquadMember[];
   /** Imported characters (id + name). */
   characters: ActionView[];
+  /** Anime pets you've unlocked (id + name). */
+  pets: ActionView[];
   followMouse: boolean;
   hooksInstalled: boolean;
   gameActive: boolean;
@@ -208,7 +213,7 @@ export interface Settings {
   dropFiles: boolean;
   errorWatcher: boolean;
   health: boolean;
-  progression: { enabled: boolean; neglect: boolean; hat: string; color: string; aura: string };
+  progression: { enabled: boolean; neglect: boolean; hat: string; color: string; aura: string; pet: string };
   breaks: { enabled: boolean; intervalMins: number };
   sounds: {
     enabled: boolean;

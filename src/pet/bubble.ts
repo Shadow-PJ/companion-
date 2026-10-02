@@ -254,13 +254,14 @@ export class Bubble {
   }
 
   private renderSquad(m: SquadMember, v: PetView) {
-    const key = JSON.stringify([m, v.characters, v.chat.enabled, this.squadError]);
+    const key = JSON.stringify([m, v.characters, v.pets, v.chat.enabled, this.squadError]);
     if (key === this.squadKey) return;
     this.squadKey = key;
     const pct = Math.round((m.xpIntoLevel / Math.max(1, m.xpForLevel)) * 100);
     const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
-    const lookChip = (id: string, label: string) =>
-      button(label, m.character === id ? "chip primary" : "chip", () => void invoke("squad_set_look", { id: m.id, character: id }));
+    const current = m.character ? `c:${m.character}` : m.species ? `p:${m.species}` : "";
+    const lookChip = (key: string, label: string, character: string, species: string) =>
+      button(label, current === key ? "chip primary" : "chip", () => void invoke("squad_set_look", { id: m.id, character, species }));
     const chat = button(`Chat with ${m.name}`, "primary", () => {
       this.squadSelected = null;
       this.onSquadChange();
@@ -286,7 +287,13 @@ export class Bubble {
         }),
         el("div", { class: "xpbar", title: `${m.xpIntoLevel} / ${m.xpForLevel} XP to level ${m.level + 1}` }, el("span", { style: `width:${pct}%` })),
         el("div", { class: "eyebrow", text: "Look" }),
-        el("div", { class: "looks" }, lookChip("", "Jellyfish"), ...v.characters.map((c) => lookChip(c.id, c.label))),
+        el(
+          "div",
+          { class: "looks" },
+          lookChip("", "Jellyfish", "", ""),
+          ...v.pets.map((p) => lookChip(`p:${p.id}`, p.label, "", p.id)),
+          ...v.characters.map((c) => lookChip(`c:${c.id}`, c.label, c.id, "")),
+        ),
         v.characters.length ? null : el("div", { class: "muted small", text: "Import characters in Settings to dress up your squad." }),
         this.squadError ? el("div", { class: "error", text: this.squadError }) : null,
         el("div", { class: "actions" }, chat, button("Close", "ghost", () => this.closeSquad())),

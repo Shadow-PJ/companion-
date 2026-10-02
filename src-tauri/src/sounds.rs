@@ -14,6 +14,8 @@ pub enum Sound {
     LevelUp,
     Evolve,
     Break,
+    /// You petted Glowby (a soft purr).
+    Pet,
 }
 
 impl Sound {
@@ -26,6 +28,7 @@ impl Sound {
             Sound::LevelUp => "levelup",
             Sound::Evolve => "evolve",
             Sound::Break => "break",
+            Sound::Pet => "pet",
         }
     }
 }
@@ -49,6 +52,7 @@ pub fn play(app: &AppHandle, sound: Sound) {
         Sound::Error => s.problems,
         Sound::LevelUp | Sound::Evolve => s.level_up,
         Sound::Break => s.breaks,
+        Sound::Pet => true, // you asked for it by petting
     };
     if wanted {
         let _ = app.emit_to(crate::pet_window::LABEL, "pet://sound", SoundMsg { name: sound.name(), volume: s.volume as f32 / 100.0 });

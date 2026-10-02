@@ -3,6 +3,7 @@
 
 import { drawAura } from "./character/auras";
 import { AVATAR_R, drawAvatar } from "./character/avatar";
+import { drawChibi, SPECIES } from "./character/chibi";
 import { drawGlowby } from "./character/glowby";
 import { characterImage, onImageLoaded } from "./character/images";
 import { blendStyle, type Mood, type MoodStyle, STYLES, styleFor } from "./character/palette";
@@ -14,6 +15,8 @@ export const BODY_X = CANVAS_W / 2;
 const BASE_BODY_Y = 54;
 /** The round character icon sits a little lower than the jellyfish's bell. */
 const AVATAR_BODY_Y = 60;
+/** Anime pets: (x, y) is the centre of the head; ears reach ~47 px above it. */
+const CHIBI_BODY_Y = 54;
 /** Tall hats need Glowby to sit a little lower so the hat stays on screen. */
 const HAT_LIFT: Record<string, number> = { sprout: 10, party: 18, wizard: 24, gradcap: 10, crown: 9, beanie: 7, headphones: 3 };
 /** Never draw more often than 60 times a second, even on 144 Hz screens. */
@@ -27,11 +30,17 @@ export interface Appearance {
   color: string;
   weak: boolean;
   aura: string;
-  /** Imported character id, "" = the jellyfish. */
+  /** Imported character id, "" = not used. Wins over `species`. */
   character: string;
+  /** Anime pet ("neko", "kitsune" …), "" = Glowby the jellyfish. */
+  species: string;
 }
 
-export const DEFAULT_APPEARANCE: Appearance = { stage: 0, hat: "", color: "periwinkle", weak: false, aura: "", character: "" };
+export const DEFAULT_APPEARANCE: Appearance = { stage: 0, hat: "", color: "periwinkle", weak: false, aura: "", character: "", species: "" };
+
+/** Little things a pet does on its own while you watch (ids are emote ids). */
+const IDLE_ACTIONS = ["idle-look", "idle-stretch", "idle-hop", "idle-wag", "wave"];
+const PET_SECONDS = 0.9;
 
 export class PetRenderer {
   /** Extra drawing in the same frame (the squad pets), so there is only one loop. */
@@ -52,6 +61,12 @@ export class PetRenderer {
   private emote: { id: string; start: number } | null = null;
   private floaters: { text: string; start: number }[] = [];
   private still: Mood | null = null;
+  /** Petting lasts this long after your last stroke. */
+  private petUntil = 0;
+  private hearts: { x: number; start: number }[] = [];
+  private nextHeart = 0;
+  private nextIdle = 0;
+  private lastGreeting = -1e9;
 
   constructor(private canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext("2d")!;
@@ -71,16 +86,27 @@ export class PetRenderer {
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
+  private isChibi() {
+    return !this.appearance.character && !!SPECIES[this.appearance.species];
+  }
+
   /** Where the body's centre is inside the canvas (eyes aim from here). */
   bodyY() {
-    const base = this.appearance.character ? AVATAR_BODY_Y : BASE_BODY_Y;
+    const base = this.appearance.character ? AVATAR_BODY_Y : this.isChibi() ? CHIBI_BODY_Y : BASE_BODY_Y;
     return base + (HAT_LIFT[this.appearance.hat] ?? 0);
   }
 
-  /** How far the speech bubble may tuck up under the body (the icon has no tentacles). */
+  /** How far the speech bubble may tuck up under the body (no tentacles hanging down). */
   bubbleOverlap() {
-    if (!this.appearance.character) return 14;
-    return Math.max(14, CANVAS_H - (this.bodyY() + AVATAR_R + 18));
+    if (this.appearance.character) return Math.max(14, CANVAS_H - (this.bodyY() + AVATAR_R + 18));
+    if (this.isChibi()) return Math.max(14, CANVAS_H - (this.bodyY() + 62 + 8));
+    return 14;
+  }
+
+  /** You're stroking him with the mouse: happy face, hearts, a little squish. */
+  pet() {
+    const now = performance.now() / 1000;
+    this.petUntil = now + PET_SECONDS;
   }
 
   setMood(mood: Mood) {
@@ -115,6 +141,15 @@ export class PetRenderer {
     this.still = null;
     this.lastFrame = performance.now();
     this.raf = requestAnimationFrame(this.frame);
+    // Say hi when sliding out (not every time you hover by).
+    const now = performance.now() / 1000;
+    if (now - this.lastGreeting > 90) {
+      this.lastGreeting = now;
+      window.setTimeout(() => {
+        if (this.running && !this.emote && this.mood !== "alert" && this.mood !== "sick") this.playEmote("wave");
+      }, 450);
+    }
+    this.nextIdle = now + 8 + Math.random() * 8;
   }
 
   stop() {
@@ -122,6 +157,18 @@ export class PetRenderer {
     cancelAnimationFrame(this.raf);
     this.emote = null;
     this.floaters = [];
+    this.hearts = [];
+    this.petUntil = 0;
+  }
+
+  /** Now and then, while idle, do something small on your own. */
+  private idleLife(t: number) {
+    if (!this.running || this.emote || t < this.nextIdle) return;
+    this.nextIdle = t + 10 + Math.random() * 14;
+    if (this.mood !== "idle" && this.mood !== "happy") return;
+    if (t < this.petUntil) return;
+    const pick = IDLE_ACTIONS[Math.floor(Math.random() * IDLE_ACTIONS.length)];
+    this.emote = { id: pick, start: t };
   }
 
   /** Draws a single still frame (Settings previews). */
@@ -151,12 +198,19 @@ export class PetRenderer {
     this.look.x += (this.lookTarget.x - this.look.x) * k;
     this.look.y += (this.lookTarget.y - this.look.y) * k;
 
+    if (dt) this.idleLife(t);
     let emote: { id: string; p: number } | null = null;
     if (this.emote) {
       const p = (t - this.emote.start) / EMOTE_SECONDS;
       if (p >= 1 || p < 0) this.emote = null;
       else emote = { id: this.emote.id, p };
     }
+    // "Looking around" moves the eyes left and right for a moment.
+    if (emote?.id === "idle-look") {
+      this.look.x = Math.sin(emote.p * Math.PI * 2) * 0.9;
+      this.look.y = -0.2;
+    }
+    const petting = Math.max(0, Math.min(1, (this.petUntil - t) / PET_SECONDS));
 
     const ctx = this.ctx;
     const a = this.appearance;
@@ -173,16 +227,46 @@ export class PetRenderer {
       y,
       appearance: a,
       emote,
+      petting,
     };
-    // Auras are centred on the body: the icon, or the jellyfish's bell (a bit lower, over the tentacles).
-    const auraY = a.character ? y : y + 6;
-    const auraR = a.character ? AVATAR_R + 3 : 38;
+    // Auras are centred on the body: the icon, the pet, or the jellyfish's bell.
+    const chibi = this.isChibi();
+    const auraY = a.character ? y : chibi ? y + 16 : y + 6;
+    const auraR = a.character ? AVATAR_R + 3 : chibi ? 40 : 38;
     const power = (this.mood === "sleepy" ? 0.45 : 1) * (a.weak ? 0.6 : 1);
     drawAura(ctx, a.aura, BODY_X, auraY, auraR, t, "back", power);
     if (a.character) drawAvatar(ctx, frame, characterImage(a.character));
+    else if (chibi) drawChibi(ctx, frame, a.species, a.color);
     else drawGlowby(ctx, frame);
     drawAura(ctx, a.aura, BODY_X, auraY, auraR, t, "front", power);
+    this.drawHearts(t, petting, y);
     this.drawFloaters(t);
+  }
+
+  /** Little hearts floating up while you pet him. */
+  private drawHearts(t: number, petting: number, y: number) {
+    if (petting > 0.3 && t >= this.nextHeart) {
+      this.nextHeart = t + 0.32;
+      this.hearts.push({ x: BODY_X + (Math.random() - 0.5) * 50, start: t });
+      if (this.hearts.length > 8) this.hearts.shift();
+    }
+    this.hearts = this.hearts.filter((h) => t - h.start < 1.2);
+    const ctx = this.ctx;
+    for (const h of this.hearts) {
+      const p = (t - h.start) / 1.2;
+      ctx.save();
+      ctx.globalAlpha = 1 - p;
+      ctx.fillStyle = "#F06E96";
+      const hx = h.x + Math.sin(p * 6 + h.x) * 4;
+      const hy = y - 20 - p * 34;
+      const s = 4.5 + p * 2;
+      ctx.beginPath();
+      ctx.moveTo(hx, hy + s * 0.35);
+      ctx.bezierCurveTo(hx - s, hy - s * 0.4, hx - s * 0.4, hy - s, hx, hy - s * 0.45);
+      ctx.bezierCurveTo(hx + s * 0.4, hy - s, hx + s, hy - s * 0.4, hx, hy + s * 0.35);
+      ctx.fill();
+      ctx.restore();
+    }
   }
 
   private drawFloaters(t: number) {

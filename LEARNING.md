@@ -451,3 +451,45 @@ which opens Chromium's DevTools protocol on this PC only, for that one run. A 30
 Node script then ran test steps *inside* Glowby's page (import a picture, open a squad
 pet's card, chat with it) without clicking on the screen. A normal start never has
 that port open.
+
+## Phase 6: anime pets, emotes and petting
+
+### 1. Characters made of parts
+
+Each anime pet is drawn from a few simple shapes: a big circle for the head, a small
+ellipse for the body, two "arms" (thick round-capped lines with a circle for the paw),
+ears, a tail. "Chibi" proportions (a head as big as the body) are what make them look
+anime-cute. Different pets reuse the same parts with different colours and extras
+(stripes, a muzzle, spiky hair, a robot visor).
+
+### 2. Poses are just numbers
+
+Every arm has one angle: 0 = hanging down, π (≈3.14) = straight up. A pose is a pair of
+angles: waving = right arm at ~2.25 swinging ±0.4, cheering = both at ~2.5, shy = both
+at 2.75 (paws on the cheeks). Emotes ease *into* the pose and back out using
+`sin(progress × π)`, so nothing snaps. Arms below the shoulder are drawn behind the head,
+raised arms in front of it, so a waving paw is never hidden.
+
+### 3. Expressions
+
+A face is chosen in two layers: the mood gives the default (focused while working,
+spirals while sick …), and a short-lived *expression* can override it: `> <` while
+laughing, a wink with the peace sign, star eyes, `^ ^` with a blush while being petted.
+The same expression names drive three different faces (the jellyfish, the anime eyes,
+the robot's LED visor).
+
+### 4. Idle life without timers
+
+While Glowby is visible the animation loop already runs 60 times a second, so idle
+actions cost nothing extra: every 10–24 seconds the loop picks a small action (look
+around, stretch, hop, wag, wave). When Glowby is hidden the loop is stopped, so there
+are no idle actions and no CPU use.
+
+### 5. Recognising petting
+
+Petting is "moving the mouse back and forth over the pet without pressing a button".
+The detector (`src/pet/petting.ts`) counts *direction changes* of the mouse: two changes
+within 1.4 s, each after at least 6 px of travel, count as petting. That ignores a mouse
+just passing by, tiny hand jitter, slow movement and dragging. It was checked with
+simulated mouse movements before it ever ran on screen. Rust gives at most one small XP
+reward every 5 minutes, so petting stays fun rather than an XP farm.

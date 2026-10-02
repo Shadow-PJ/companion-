@@ -100,8 +100,14 @@ pub fn squad_chat_open(app: AppHandle, id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn squad_set_look(app: AppHandle, id: String, character: String) -> Result<(), String> {
-    crate::squad::set_look(&app, &id, &character)
+pub fn squad_set_look(app: AppHandle, id: String, character: String, species: Option<String>) -> Result<(), String> {
+    crate::squad::set_look(&app, &id, &character, species.as_deref().unwrap_or(""))
+}
+
+/// You stroked Glowby with the mouse (one call per petting session).
+#[tauri::command]
+pub fn pet_petted(app: AppHandle) {
+    crate::progress::petted(&app);
 }
 
 #[tauri::command]
