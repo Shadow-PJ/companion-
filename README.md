@@ -1,5 +1,7 @@
 # Glowby
 
+**Made by [Shadow-PJ](https://github.com/Shadow-PJ).**
+
 A small glowing jellyfish that lives at the top edge of your screen and keeps you
 company while Claude Code works. Windows 10/11, built with Tauri 2 (Rust + TypeScript).
 The character is drawn entirely in code (Canvas); there are no image files.
