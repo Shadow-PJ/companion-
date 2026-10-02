@@ -24,7 +24,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 pub const LABEL: &str = "pet";
 /// Window size in CSS pixels. Most of it is transparent and click-through.
 pub const WIDTH: f64 = 480.0;
-pub const HEIGHT: f64 = 480.0;
+pub const HEIGHT: f64 = 600.0;
 /// The invisible hover strip at the top edge.
 const HOT_WIDTH: f64 = 150.0;
 const HOT_HEIGHT: f64 = 3.0;

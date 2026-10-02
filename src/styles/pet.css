@@ -59,6 +59,10 @@ body {
 
 #stage {
   position: relative;
+  /* the bubble may never grow past the window: it scrolls instead */
+  height: 100vh;
+  box-sizing: border-box;
+  padding-bottom: 12px;
 }
 #pet {
   position: relative;
@@ -84,6 +88,22 @@ body {
 #bubble {
   position: relative;
   z-index: 2;
+  /* a flex column, so the part being shown can shrink and scroll */
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0;
+}
+#bubble[hidden] {
+  display: none;
+}
+#bubble > * {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+#pet {
+  flex: none;
 }
 
 .bubble {
