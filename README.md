@@ -75,6 +75,15 @@ every stage, mood, hat, colour, emote and aura at once, plus a stand-in imported
 
 ## Troubleshooting
 
+* **"Needs update" / Glowby gets no events, and you started Glowby from inside the Claude
+  desktop app** (its terminal, or a Claude Code session in it): the Store version of
+  the Claude app redirects AppData writes of programs it starts into its own private
+  folder, so Glowby's hook program and data land where a normally started Glowby can't
+  see them. Double-click `scripts\move-out-of-claude-app.cmd` in File Explorer once: it
+  backs up, moves the data to the normal place, and restarts Glowby. Since this fix,
+  `glowby.exe` carries its hook program inside, so any copy of it (e.g. on your Desktop)
+  installs the hook by itself.
+
 * `glowby.log` in `%APPDATA%\dev.glowby.app` records startup and errors. Start Glowby
   with `GLOWBY_DEBUG=1` to also log every hook event it receives.
 * Set `GLOWBY_HOOK_DEBUG=1` before running `glowby-hook.exe` by hand to see why an event

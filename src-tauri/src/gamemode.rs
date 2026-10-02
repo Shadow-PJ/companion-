@@ -17,7 +17,7 @@ use windows_sys::Win32::UI::Shell::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EVENT_SYSTEM_FOREGROUND, GWL_STYLE, GetClassNameW, GetForegroundWindow, GetWindowLongW, GetWindowRect,
-    WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS, WS_CAPTION, WS_MAXIMIZE,
+    WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS, WS_MAXIMIZE,
 };
 
 static APP: OnceLock<AppHandle> = OnceLock::new();
@@ -96,8 +96,11 @@ fn foreground_covers_monitor() -> bool {
         if matches!(class.as_str(), "Progman" | "WorkerW" | "Shell_TrayWnd" | "Shell_SecondaryTrayWnd") {
             return false;
         }
+        // A maximised window is a normal app, even without a title bar (Chrome,
+        // Claude, VS Code draw their own). With an auto-hiding taskbar it covers
+        // the whole monitor, which used to look like a borderless game.
         let style = GetWindowLongW(fg, GWL_STYLE) as u32;
-        if style & WS_MAXIMIZE != 0 && style & WS_CAPTION == WS_CAPTION {
+        if style & WS_MAXIMIZE != 0 {
             return false;
         }
         let mut r: RECT = std::mem::zeroed();

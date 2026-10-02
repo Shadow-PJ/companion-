@@ -49,10 +49,14 @@ fn main() {
             app.manage(AppState::new(config_dir));
 
             // Keep the installed hook program up to date if hooks are installed.
-            let status = hooks_installer::status(&handle);
-            if status.state != "notInstalled" {
-                let _ = hooks_installer::ensure_hook_binary(&handle);
+            // (Install it BEFORE checking the status: a fresh copy of glowby.exe,
+            // e.g. on your Desktop, puts its built-in hook program in place first.)
+            if hooks_installer::status(&handle).state != "notInstalled"
+                && let Err(e) = hooks_installer::ensure_hook_binary(&handle)
+            {
+                applog::line(format!("hook program: {e}"));
             }
+            let status = hooks_installer::status(&handle);
             lock(&app.state::<AppState>().ui).hooks_installed = status.state == "installed";
 
             // Order matters: windows first, then things that reference them.

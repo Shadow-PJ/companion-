@@ -75,37 +75,46 @@ pub fn installed_hook_path(app: &AppHandle) -> PathBuf {
     base.join("Glowby").join("bin").join(HOOK_EXE)
 }
 
+/// A copy of glowby-hook.exe built into glowby.exe (see build.rs; empty if the
+/// hook wasn't built first).
+const EMBEDDED_HOOK: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/glowby-hook.bin"));
+
 fn bundled_hook_path() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let candidate = exe.parent()?.join(HOOK_EXE);
     candidate.is_file().then_some(candidate)
 }
 
-/// Copies glowby-hook.exe next to Glowby into %LOCALAPPDATA%\Glowby\bin (if changed).
+/// The hook program to install: the glowby-hook.exe next to Glowby (fresh in
+/// development), else the copy built into glowby.exe (so a lone glowby.exe works).
+fn hook_program() -> Option<Vec<u8>> {
+    if let Some(bytes) = bundled_hook_path().and_then(|p| std::fs::read(p).ok()) {
+        return Some(bytes);
+    }
+    (!EMBEDDED_HOOK.is_empty()).then(|| EMBEDDED_HOOK.to_vec())
+}
+
+/// Installs the hook program into %LOCALAPPDATA%\Glowby\bin (if missing or changed).
 pub fn ensure_hook_binary(app: &AppHandle) -> Result<PathBuf, String> {
     let target = installed_hook_path(app);
     if let Some(dir) = target.parent() {
         remove_old_copies(dir);
     }
-    let Some(source) = bundled_hook_path() else {
+    let Some(program) = hook_program() else {
         return if target.is_file() {
             Ok(target)
         } else {
             Err(format!("{HOOK_EXE} wasn't found next to Glowby. Build it with `npm run hook`."))
         };
     };
-    let same = match (std::fs::read(&source), std::fs::read(&target)) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => false,
-    };
-    if same {
+    if std::fs::read(&target).is_ok_and(|current| current == program) {
         return Ok(target);
     }
     if let Some(dir) = target.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let tmp = target.with_extension("exe.new");
-    std::fs::copy(&source, &tmp).map_err(|e| format!("Couldn't copy the hook program: {e}"))?;
+    std::fs::write(&tmp, &program).map_err(|e| format!("Couldn't copy the hook program: {e}"))?;
     if std::fs::rename(&tmp, &target).is_ok() {
         return Ok(target);
     }
@@ -163,7 +172,9 @@ fn is_ours(entry: &Value) -> bool {
 }
 
 /// Removes every Glowby hook entry, then tidies up any empty containers it leaves.
-fn strip_ours(root: &mut Value) {
+/// `drop_empty_hooks`: also remove a now-empty "hooks" key (uninstall). When
+/// reinstalling we keep it, so the key stays where it was in your file.
+fn strip_ours(root: &mut Value, drop_empty_hooks: bool) {
     let Some(hooks) = root.get_mut("hooks").and_then(Value::as_object_mut) else { return };
     for groups in hooks.values_mut() {
         if let Some(groups) = groups.as_array_mut() {
@@ -176,8 +187,9 @@ fn strip_ours(root: &mut Value) {
         }
     }
     hooks.retain(|_, groups| groups.as_array().is_none_or(|g| !g.is_empty()));
-    if hooks.is_empty() {
-        root.as_object_mut().map(|o| o.remove("hooks"));
+    if hooks.is_empty() && drop_empty_hooks {
+        // shift_remove keeps the order of your other settings (remove() would swap them)
+        root.as_object_mut().map(|o| o.shift_remove("hooks"));
     }
 }
 
@@ -209,7 +221,7 @@ fn transform(app: &AppHandle, install: bool) -> Result<(String, Value, Value), S
     let path = claude_settings_path(app);
     let (raw, before) = read_settings(&path)?;
     let mut after = before.clone();
-    strip_ours(&mut after);
+    strip_ours(&mut after, !install);
     if install {
         add_ours(&mut after, &installed_hook_path(app).to_string_lossy());
     }
@@ -295,7 +307,7 @@ mod tests {
         add_ours(&mut v, HOOK);
         assert_eq!(v["hooks"]["PreToolUse"].as_array().unwrap().len(), 2);
         assert!(v.pointer("/hooks/PermissionRequest/0/hooks/0/command").is_some());
-        strip_ours(&mut v);
+        strip_ours(&mut v, true);
         assert_eq!(v, original);
     }
 
@@ -304,15 +316,29 @@ mod tests {
         let original = json!({ "theme": "dark", "model": "x" });
         let mut v = original.clone();
         add_ours(&mut v, HOOK);
-        strip_ours(&mut v);
+        strip_ours(&mut v, true);
         assert_eq!(v, original);
+        assert_eq!(v.to_string(), original.to_string(), "and in the same order");
+    }
+
+    #[test]
+    fn reinstall_keeps_the_order_of_your_settings() {
+        // Map equality ignores order, so compare the text Claude Code would see.
+        let mut v = json!({ "hooks": {}, "model": "x", "theme": "dark" });
+        add_ours(&mut v, HOOK);
+        let installed = v.to_string();
+        strip_ours(&mut v, false);
+        add_ours(&mut v, HOOK);
+        assert_eq!(v.to_string(), installed);
+        let keys: Vec<&String> = v.as_object().unwrap().keys().collect();
+        assert_eq!(keys, ["hooks", "model", "theme"]);
     }
 
     #[test]
     fn reinstall_does_not_duplicate() {
         let mut v = json!({});
         add_ours(&mut v, HOOK);
-        strip_ours(&mut v);
+        strip_ours(&mut v, false);
         add_ours(&mut v, HOOK);
         assert_eq!(v["hooks"]["Stop"].as_array().unwrap().len(), 1);
     }
