@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "description": "Glowby, a desktop companion pet for Claude Code",
   "author": "Shadow-PJ",
+  "license": "MIT",
   "repository": "github:Shadow-PJ/companion-",
   "type": "module",
   "scripts": {

@@ -5,6 +5,7 @@
 [![Latest release](https://img.shields.io/github/v/release/Shadow-PJ/companion-?label=download)](https://github.com/Shadow-PJ/companion-/releases/latest)
 [![CI](https://github.com/Shadow-PJ/companion-/actions/workflows/ci.yml/badge.svg)](https://github.com/Shadow-PJ/companion-/actions/workflows/ci.yml)
 ![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 A small glowing jellyfish that lives at the top edge of your screen and keeps you
 company while [Claude Code](https://claude.com/claude-code) works. It shows what Claude
@@ -156,3 +157,9 @@ scripts/                 icon generator, fake events, measurements
 
 Glowby was designed and made by **[Shadow-PJ](https://github.com/Shadow-PJ)**, built
 with the help of Claude Code. The character, its name and its sounds are original.
+
+## License
+
+[MIT](LICENSE) © 2026 Shadow-PJ. You may use, copy and change Glowby, also in your own
+projects, as long as you keep the copyright notice and license text. It comes "as is",
+without warranty.

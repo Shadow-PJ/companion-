@@ -2,6 +2,7 @@
 name = "glowby-hook"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 description = "Tiny fail-open bridge that Claude Code runs for each hook event"
 
 [dependencies]
