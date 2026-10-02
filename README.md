@@ -2,131 +2,144 @@
 
 **Made by [Shadow-PJ](https://github.com/Shadow-PJ).**
 
+[![Latest release](https://img.shields.io/github/v/release/Shadow-PJ/companion-?label=download)](https://github.com/Shadow-PJ/companion-/releases/latest)
+[![CI](https://github.com/Shadow-PJ/companion-/actions/workflows/ci.yml/badge.svg)](https://github.com/Shadow-PJ/companion-/actions/workflows/ci.yml)
+![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
+
 A small glowing jellyfish that lives at the top edge of your screen and keeps you
-company while Claude Code works. Windows 10/11, built with Tauri 2 (Rust + TypeScript).
-The character is drawn entirely in code (Canvas); there are no image files.
+company while [Claude Code](https://claude.com/claude-code) works. It shows what Claude
+is doing, lets you answer Claude's permission questions with one click, chats with
+Claude for you, and levels up as you code.
 
-## Build and run
+Glowby hides at the top edge and slides out when you hover there. He's drawn entirely
+in code (no image files), uses about 60 MB of RAM and ~0% CPU while hidden, and never
+sends your data anywhere.
 
-Requirements: Rust (MSVC toolchain), Node 22+, Visual Studio C++ build tools, Windows SDK, WebView2.
+## Download
 
-```powershell
-npm install
-npm run release            # builds target\release\glowby.exe + glowby-hook.exe
-.\target\release\glowby.exe
-```
+1. Download **[Glowby.exe](https://github.com/Shadow-PJ/companion-/releases/latest/download/Glowby.exe)**
+   from the [latest release](https://github.com/Shadow-PJ/companion-/releases/latest).
+   It's one file; there's nothing to install.
+2. Put it anywhere you like (your Desktop, `C:\Tools` …) and double-click it.
+3. If Windows says **"Windows protected your PC"**, click **More info → Run anyway**.
+   Glowby isn't code-signed (that costs money every year), so Windows doesn't know it yet.
 
-For development with live reload of the web parts: `npm run dev`.
+**You need:**
+
+* Windows 10 or 11 (64-bit)
+* The Microsoft Edge **WebView2** runtime: already part of Windows 11 and most Windows 10
+  PCs. If Glowby doesn't open, [get it from Microsoft](https://developer.microsoft.com/microsoft-edge/webview2/).
+* [Claude Code](https://claude.com/claude-code), installed and signed in
+
+**Start Glowby with Windows (optional):** press `Win + R`, type `shell:startup`, press
+Enter, and put a shortcut to `Glowby.exe` in the folder that opens.
 
 ## First run
 
-1. Glowby opens **Settings** because it isn't connected yet.
-2. **Connect to Claude Code → Install hooks…** shows the exact diff for
-   `~\.claude\settings.json`. Click **Apply**. A backup is saved first.
-3. Restart any running Claude Code sessions.
-4. Hover the top edge of your screen (where the thin strip is) to call Glowby out.
+1. Glowby opens **Settings** because it isn't connected to Claude Code yet.
+2. Under **Connect to Claude Code**, click **Install hooks…**. You see exactly what will
+   change in `~\.claude\settings.json`. Click **Apply**. A backup is made first.
+3. Restart any Claude Code sessions that are already running.
+4. Hover the top edge of your screen (the thin line) to call Glowby out.
 
-## Using Glowby
+## What Glowby does
 
-* **Hover** the faint line at the top edge: Glowby slides out with the live status.
-* **Click** Glowby to chat with Claude Code in your project. The folder chip picks the project.
-* **Right-click** Glowby for quick actions (edit them in Settings → Quick actions).
-* **Drag a file** to the top edge, drop it on Glowby, then pick Explain / Review / Fix /
-  Summarize or type an instruction.
-* **Error watcher** (Settings → Helpers, off by default): copy an error message and Glowby
-  offers to fix or explain it.
-* **Sick?** Your tests or build are failing. Glowby gets better when they pass, or click
-  Dismiss.
-* **Levels:** Glowby earns XP from finished tasks, fixes, passing tests and commits, and
-  evolves at levels 6, 15 and 30. Hats, colours and emotes unlock along the way
-  (Settings → Glowby's progress). Keep a daily streak; ignore him for days and he gets
-  tired (never worse).
-* **Breaks:** after an hour of continuous coding (adjustable) Glowby suggests a rest.
-* **Sounds:** small synthesized chimes. Volume, per-event toggles, and mute in Settings.
-  Always muted during fullscreen games.
-* **Daily briefing:** on your first activity of the day: yesterday's commits, unfinished
-  work, and one small next step (Do it with Claude). Right-click → Today's briefing.
-* **Learn mode:** after Claude edits your code, answer a quick question about it for XP
-  (uses Claude Haiku through your login, at most every 30 minutes by default).
-* **Daily quests:** 3 small goals a day with XP. Difficulty and types in Settings.
-* **GitHub CI check** (off by default): Glowby tells you when Actions fails on your
-  branch. The token is stored in Windows Credential Manager.
-* **Your own characters:** Settings → Characters → **Import a picture…**, crop it to a
-  circle, and Glowby wears it as a small round icon with all his moods, hats and emotes.
-  Use pictures you have, e.g. your favourite anime characters. They stay on your PC.
-* **Auras:** power-up effects (flames, golden power-up, cursed energy, infinity rings …)
-  that unlock as you level up. Settings → Glowby's progress → Aura.
-* **Squad mode** (off by default, Settings → Squad mode): one small pet per running
-  Claude Code session, each levelling up on its own. Click a pet for what it's doing,
-  its look, or **Chat with …** (talks to a copy of that session, so the original in your
-  terminal isn't disturbed).
+**Watches Claude Code for you**
 
-For art changes, `npm run vite:dev` and open `http://127.0.0.1:1420/gallery.html` to see
-every stage, mood, hat, colour, emote and aura at once, plus a stand-in imported character.
+* **Live status:** hover the line at the top edge to see what Claude is doing right now
+  ("Editing main.rs", "Running npm test"). The line turns blue while Claude works and
+  amber when it needs you.
+* **Permission questions:** when Claude asks to run something, answer **Allow / Deny** on
+  Glowby. No answer in time? The question goes back to the terminal.
+* **Moods:** working, happy when a task is done, alert when Claude needs you, sick while
+  your tests or build fail, sleepy when it's quiet.
 
-## Testing without Claude Code
+**Helps you**
 
-`scripts\fake-event.ps1` runs the real `glowby-hook.exe` with a pretend event:
+* **Chat:** click Glowby to ask Claude Code about your project.
+* **Quick actions:** right-click Glowby: explain the last error, run and fix the project,
+  commit with a good message … (editable in Settings).
+* **Drop a file** on Glowby, then pick Explain / Review / Fix / Summarize.
+* **Error watcher** (off by default): copy an error message and Glowby offers to fix it.
+* **Daily briefing:** yesterday's commits, unfinished work and one small next step.
+* **Learn mode:** after Claude changes your code, a quick question about it for XP.
+* **Break reminder** after long coding stretches.
+* **GitHub CI check** (off by default): tells you when GitHub Actions fails.
 
-```powershell
-.\scripts\fake-event.ps1 -Event UserPromptSubmit
-.\scripts\fake-event.ps1 -Event PreToolUse -Tool Edit -Target src\main.rs
-.\scripts\fake-event.ps1 -Event PermissionRequest -Tool Bash -Target "git push"
-.\scripts\fake-event.ps1 -Event Stop -Message "Added the login page"
-```
+**Grows with you**
 
-## Troubleshooting
+* **XP and levels** from finished tasks, fixes, passing tests and commits. Glowby
+  evolves at levels 6, 15 and 30.
+* **Unlockables:** hats, colours, emotes, and power-up **auras** (flames, golden
+  power-up, cursed energy, infinity rings …).
+* **Your own characters:** Settings → Characters → **Import a picture…** and Glowby wears
+  any character you like (your favourite anime hero, your cat …) as a round icon, with
+  all his moods. Pictures stay on your PC.
+* **Daily quests and streaks.** Ignore him for days and he gets tired, but he never dies.
+* **Squad mode** (off by default): one small pet for each running Claude Code session,
+  each levelling up on its own. Click one to see what it's doing or chat with it.
 
-* **"Needs update" / Glowby gets no events, and you started Glowby from inside the Claude
-  desktop app** (its terminal, or a Claude Code session in it): the Store version of
-  the Claude app redirects AppData writes of programs it starts into its own private
-  folder, so Glowby's hook program and data land where a normally started Glowby can't
-  see them. Double-click `scripts\move-out-of-claude-app.cmd` in File Explorer once: it
-  backs up, moves the data to the normal place, and restarts Glowby. Since this fix,
-  `glowby.exe` carries its hook program inside, so any copy of it (e.g. on your Desktop)
-  installs the hook by itself.
+Every feature has its own switch in Settings. **Game mode** hides Glowby and mutes him
+while a fullscreen game runs.
 
-* `glowby.log` in `%APPDATA%\dev.glowby.app` records startup and errors. Start Glowby
-  with `GLOWBY_DEBUG=1` to also log every hook event it receives.
-* Set `GLOWBY_HOOK_DEBUG=1` before running `glowby-hook.exe` by hand to see why an event
-  wasn't delivered (not running, bad JSON, untrusted pipe owner).
+## Privacy and safety
 
-## Measuring
-
-```powershell
-.\scripts\measure.ps1 -Seconds 60 -Label "hidden, idle"
-```
-
-Counts glowby.exe plus all of its WebView2 helper processes.
-
-## Safety
-
-* Hooks **fail open**. If Glowby is closed, crashed, or slow, the hook exits 0 and
-  prints nothing, so Claude Code behaves as if Glowby didn't exist. Glowby never uses
-  exit code 2 (Claude Code's "block" signal).
-* Listening hooks are `async`, so Claude Code never waits for them. Only the permission
-  hook waits, and only while Glowby is running and you haven't answered.
-* `settings.json` is changed only after you review a diff. It's backed up first, written
-  atomically, and verified. **Uninstall hooks** removes only Glowby's entries.
-* No telemetry. Data lives in `%APPDATA%\dev.glowby.app` (settings, backups, chat
-  session IDs, test/build health, progress, quests, recent projects, squad pets, your
-  imported character pictures) and
-  `%LOCALAPPDATA%\Glowby\bin` (the hook program). The only network traffic Glowby itself
-  makes is the optional GitHub CI check (api.github.com, only when turned on); chat and
-  learn mode go through Claude Code with your login.
-* Every hook process ends itself within 15 s (permission questions: their timeout plus
-  15 s), even if Claude Code never closes its input.
-* The error watcher is opt-in, checks text locally, forgets non-errors immediately,
-  never logs clipboard content, and skips content password managers mark as private.
-* The hook pipe is locked to your Windows account. The hook also checks that whoever
-  is listening runs as you before it sends anything.
+* **No telemetry.** Everything stays on your PC: settings and progress in
+  `%APPDATA%\dev.glowby.app`, the hook program in `%LOCALAPPDATA%\Glowby\bin`.
+  Glowby itself only goes online for the optional GitHub CI check; chat and learn mode
+  go through Claude Code with your own login.
+* **Claude Code is never blocked.** The hooks "fail open": if Glowby is closed or
+  crashes, Claude Code works exactly as if Glowby didn't exist.
+* **Your Claude settings are changed only after you see the diff**, with a backup first.
+  **Uninstall hooks** removes only Glowby's entries.
+* A GitHub token (only if you use the CI check) is kept in Windows Credential Manager,
+  never in a file.
+* The connection between Claude Code and Glowby is locked to your Windows account.
 
 ## Uninstall
 
-Settings → **Uninstall hooks…** → Apply. Then delete `%APPDATA%\dev.glowby.app`,
-`%LOCALAPPDATA%\Glowby` and `%LOCALAPPDATA%\dev.glowby.app`.
+1. Settings → **Uninstall hooks…** → **Apply**.
+2. Quit Glowby (tray icon → Quit) and delete `Glowby.exe`.
+3. Optional, to remove your data too: delete `%APPDATA%\dev.glowby.app`,
+   `%LOCALAPPDATA%\Glowby` and `%LOCALAPPDATA%\dev.glowby.app`.
 
-## Layout
+## Troubleshooting
+
+* **Glowby doesn't react to Claude Code:** open Settings and check that
+  **Connect to Claude Code** says *Connected*, then restart your Claude Code sessions.
+* **I can't find Glowby:** hover the very top edge of the screen where the faint line
+  is, or use the tray icon → **Show Glowby**. Game mode hides him while a fullscreen app
+  runs.
+* **Started Glowby from inside the Claude desktop app's terminal?** The Store version of
+  the Claude app redirects AppData for programs it starts, so Glowby's data ends up in a
+  private folder. Double-click `scripts\move-out-of-claude-app.cmd` in File Explorer once
+  to move it back, then start Glowby normally.
+* `glowby.log` in `%APPDATA%\dev.glowby.app` records startup and errors. Start Glowby
+  with `GLOWBY_DEBUG=1` to also log every hook event.
+
+## Build it yourself
+
+Needs Rust (MSVC toolchain), Node 22+, the Visual Studio C++ build tools and WebView2.
+
+```powershell
+git clone https://github.com/Shadow-PJ/companion-.git glowby
+cd glowby
+npm install
+npm run release        # builds target\release\glowby.exe (the hook program is built in)
+.\target\release\glowby.exe
+```
+
+* `npm run dev`: development mode with live reload of the web parts.
+* `npm run vite:dev`, then open `http://127.0.0.1:1420/gallery.html`: every stage, mood,
+  hat, colour, emote and aura side by side.
+* `cargo test --workspace`: the Rust tests.
+* `.\scripts\fake-event.ps1 -Event Stop -Message "Done!"`: send Glowby a pretend Claude
+  Code event without running Claude Code.
+* `.\scripts\measure.ps1 -Seconds 60`: measure RAM and CPU.
+
+**Publishing a new version:** bump the version in `Cargo.toml`, `package.json` and
+`src-tauri/tauri.conf.json`, then push a tag (`git tag v0.2.0` → `git push origin v0.2.0`).
+GitHub Actions builds `Glowby.exe` and publishes the release.
 
 ```
 crates/glowby-protocol   messages + security helpers shared by app and hook
@@ -137,4 +150,9 @@ src/settings             the settings window
 scripts/                 icon generator, fake events, measurements
 ```
 
-See LEARNING.md for how each part works.
+[LEARNING.md](LEARNING.md) explains how every part works, phase by phase.
+
+## Credits
+
+Glowby was designed and made by **[Shadow-PJ](https://github.com/Shadow-PJ)**, built
+with the help of Claude Code. The character, its name and its sounds are original.

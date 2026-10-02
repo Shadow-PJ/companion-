@@ -3,6 +3,8 @@ name = "glowby"
 version.workspace = true
 edition.workspace = true
 description = "Glowby, a desktop companion for Claude Code"
+authors = ["Shadow-PJ"]
+repository = "https://github.com/Shadow-PJ/companion-"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

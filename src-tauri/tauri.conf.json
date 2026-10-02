@@ -19,6 +19,9 @@
   },
   "bundle": {
     "active": false,
+    "publisher": "Shadow-PJ",
+    "copyright": "Copyright (c) 2026 Shadow-PJ",
+    "shortDescription": "A desktop companion pet for Claude Code",
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"]
   }
 }

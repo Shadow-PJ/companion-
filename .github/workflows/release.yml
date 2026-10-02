@@ -1,0 +1,59 @@
+# Builds Glowby.exe on a clean Windows machine and publishes it as a GitHub
+# Release whenever a version tag (v0.1.0, v0.2.0 …) is pushed.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # create the release and upload the download
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install web dependencies
+        run: npm ci
+
+      # Builds the hook first, then glowby.exe with the hook built into it.
+      - name: Build Glowby
+        run: npm run release
+
+      - name: Prepare the download
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory out | Out-Null
+          Copy-Item target/release/glowby.exe out/Glowby.exe
+          $hash = (Get-FileHash out/Glowby.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  Glowby.exe" | Out-File out/SHA256.txt -Encoding ascii
+          "Glowby.exe: $([math]::Round((Get-Item out/Glowby.exe).Length / 1MB, 1)) MB, SHA-256 $hash"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/Glowby.exe
+            out/SHA256.txt
+          generate_release_notes: true
+          body: |
+            ## Download
+
+            1. Download **Glowby.exe** below (one file, nothing to install).
+            2. Put it anywhere, for example on your Desktop, and double-click it.
+            3. If Windows says *"Windows protected your PC"*, click **More info → Run anyway**.
+               (Glowby isn't code-signed, so Windows doesn't know it yet.)
+            4. Glowby opens its Settings: click **Install hooks… → Apply** to connect it to Claude Code.
+
+            Needs Windows 10/11 (64-bit), the WebView2 runtime (already on Windows 11) and Claude Code.
+            `SHA256.txt` lets you check the download wasn't changed.

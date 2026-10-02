@@ -1,0 +1,32 @@
+# Checks every push: TypeScript types, the web build and all Rust tests.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: npm ci
+      - run: npm run build:web # type check + web pages
+      - run: npm run icons # the app's icons are generated from code
+      - run: cargo build -p glowby-hook # glowby.exe embeds the hook program
+      # The Credential Manager test needs a real logged-in desktop session, which CI machines don't have.
+      - run: cargo test --workspace -- --skip credential_manager_round_trip

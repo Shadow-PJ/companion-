@@ -2,6 +2,9 @@
   "name": "glowby",
   "private": true,
   "version": "0.1.0",
+  "description": "Glowby, a desktop companion pet for Claude Code",
+  "author": "Shadow-PJ",
+  "repository": "github:Shadow-PJ/companion-",
   "type": "module",
   "scripts": {
     "icons": "node scripts/gen-icons.mjs",
