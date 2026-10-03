@@ -193,6 +193,8 @@ export interface PetView {
   autoAllow: { full: boolean; minutesLeft: number | null; allowed: number } | null;
   /** Claude / Codex usage limits (null = turned off). */
   limits: LimitsView | null;
+  /** The token detective's case report, while it's open. */
+  caseReport: CaseReport | null;
   followMouse: boolean;
   hooksInstalled: boolean;
   gameActive: boolean;
@@ -236,6 +238,7 @@ export interface Settings {
   squad: { enabled: boolean; maxShown: number };
   autoAllow: { full: boolean; never: string[]; outsideProject: boolean };
   limits: { enabled: boolean; warn: boolean; warnPercent: number };
+  detective: { enabled: boolean; weekly: boolean; cacheReminder: boolean };
 }
 
 export interface LimitWindow {
@@ -248,6 +251,14 @@ export interface LimitWindow {
   stale: boolean;
   exact: boolean;
   tight: boolean;
+}
+
+export interface CaseReport {
+  running: boolean;
+  period: string;
+  summary: string;
+  findings: { title: string; detail: string; tip: string; share: string; canFix: boolean }[];
+  footnote: string;
 }
 
 export interface LimitsView {

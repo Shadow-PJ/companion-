@@ -72,7 +72,7 @@ row(
 );
 row(
   "Hats",
-  ["sprout", "party", "beanie", "headphones", "crown", "wizard", "gradcap"].map((h) => [h, "happy", { hat: h }]),
+  ["sprout", "party", "beanie", "headphones", "crown", "wizard", "gradcap", "detective"].map((h) => [h, "happy", { hat: h }]),
 );
 row(
   "Colours (Starlit)",

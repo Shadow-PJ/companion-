@@ -32,6 +32,24 @@ pub struct Settings {
     pub squad: SquadSettings,
     pub auto_allow: AutoAllowSettings,
     pub limits: LimitsSettings,
+    pub detective: DetectiveSettings,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default, rename_all = "camelCase")]
+pub struct DetectiveSettings {
+    /// The token detective (reads numbers from your local Claude Code logs).
+    pub enabled: bool,
+    /// A case report on your first activity each week.
+    pub weekly: bool,
+    /// "Your cache goes cold in a minute" (needs Glowby's status line).
+    pub cache_reminder: bool,
+}
+
+impl Default for DetectiveSettings {
+    fn default() -> Self {
+        Self { enabled: true, weekly: true, cache_reminder: true }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -337,6 +355,7 @@ impl Default for Settings {
             squad: SquadSettings::default(),
             auto_allow: AutoAllowSettings::default(),
             limits: LimitsSettings::default(),
+            detective: DetectiveSettings::default(),
         }
     }
 }

@@ -104,6 +104,29 @@ pub fn squad_set_look(app: AppHandle, id: String, character: String, species: Op
     crate::squad::set_look(&app, &id, &character, species.as_deref().unwrap_or(""))
 }
 
+/// Right-click → Token detective: make a case report now and show it.
+#[tauri::command]
+pub fn detective_run(app: AppHandle) {
+    crate::detective::run(&app, true);
+}
+
+#[tauri::command]
+pub fn detective_close(app: AppHandle) {
+    crate::detective::close(&app);
+}
+
+/// "Ask Claude how to split it" on a finding.
+#[tauri::command]
+pub fn detective_fix(app: AppHandle, index: usize) -> Result<(), String> {
+    crate::detective::fix(&app, index)
+}
+
+/// The last case report as plain text (Settings).
+#[tauri::command]
+pub fn detective_last(app: AppHandle) -> String {
+    lock(&app.state::<AppState>().detective).last_text.clone()
+}
+
 /// Opening the limits card or Settings: read fresh numbers (arrive a moment later).
 #[tauri::command]
 pub fn limits_refresh(app: AppHandle) -> Option<crate::limits::LimitsView> {

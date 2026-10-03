@@ -531,3 +531,15 @@ pre.small-pre {
 .limit.stale {
   opacity: 0.7;
 }
+/* token detective case report */
+.case-card {
+  width: 320px;
+}
+.case-finding {
+  margin: 6px 0 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.case-finding .limit-head {
+  gap: 8px;
+}

@@ -54,6 +54,8 @@ pub struct Stats {
     pub commits: u32,
     pub breaks: u32,
     pub pets: u32,
+    /// Token-detective case reports made (the first unlocks the detective hat).
+    pub case_reports: u32,
 }
 
 /// Evolution stages: (first level, name).
@@ -99,6 +101,8 @@ pub enum Kind {
 pub enum Needs {
     Level(u32),
     Streak(u32),
+    /// Your first token-detective case report.
+    CaseReport,
 }
 
 pub struct Cosmetic {
@@ -136,6 +140,7 @@ pub const COSMETICS: &[Cosmetic] = &[
     c("crown", Kind::Hat, "Tiny crown", Needs::Level(12)),
     c("wizard", Kind::Hat, "Wizard hat", Needs::Level(20)),
     c("gradcap", Kind::Hat, "Graduation cap", Needs::Level(25)),
+    c("detective", Kind::Hat, "Detective hat", Needs::CaseReport),
     c("periwinkle", Kind::Color, "Periwinkle", Needs::Level(1)),
     c("mint", Kind::Color, "Mint", Needs::Level(3)),
     c("peach", Kind::Color, "Peach", Needs::Level(7)),
@@ -152,21 +157,23 @@ pub const COSMETICS: &[Cosmetic] = &[
     c("rainbow", Kind::Aura, "Rainbow aurora", Needs::Level(24)),
 ];
 
-fn is_unlocked(cosmetic: &Cosmetic, level: u32, best_streak: u32) -> bool {
+fn is_unlocked(cosmetic: &Cosmetic, level: u32, best_streak: u32, case_reports: u32) -> bool {
     match cosmetic.needs {
         Needs::Level(l) => level >= l,
         Needs::Streak(s) => best_streak >= s,
+        Needs::CaseReport => case_reports >= 1,
     }
 }
 
-fn unlocked_names(level: u32, best_streak: u32) -> Vec<&'static str> {
-    COSMETICS.iter().filter(|c| is_unlocked(c, level, best_streak)).map(|c| c.name).collect()
+fn unlocked_names(level: u32, best_streak: u32, case_reports: u32) -> Vec<&'static str> {
+    COSMETICS.iter().filter(|c| is_unlocked(c, level, best_streak, case_reports)).map(|c| c.name).collect()
 }
 
 pub fn requirement_text(needs: Needs) -> String {
     match needs {
         Needs::Level(l) => format!("Level {l}"),
         Needs::Streak(s) => format!("{s}-day streak"),
+        Needs::CaseReport => "your first case report".into(),
     }
 }
 
@@ -185,8 +192,8 @@ impl Progress {
 
     fn diff(&self, level_before: u32, best_before: u32) -> Award {
         let level = self.level();
-        let before = unlocked_names(level_before, best_before);
-        let unlocked = unlocked_names(level, self.best_streak).into_iter().filter(|n| !before.contains(n)).collect();
+        let before = unlocked_names(level_before, best_before, self.stats.case_reports);
+        let unlocked = unlocked_names(level, self.best_streak, self.stats.case_reports).into_iter().filter(|n| !before.contains(n)).collect();
         Award {
             new_level: (level > level_before).then_some(level),
             evolved_into: (stage_for(level) > stage_for(level_before)).then(|| STAGES[stage_for(level)].1),
@@ -300,7 +307,7 @@ pub fn view(p: &Progress, now: DateTime<Local>) -> ProgressView {
 /// Equipped cosmetics, but only ones that are actually unlocked.
 pub fn look(p: &Progress, settings: &Settings, now: DateTime<Local>) -> Look {
     let level = p.level();
-    let ok = |id: &str, kind: Kind| COSMETICS.iter().any(|c| c.id == id && c.kind == kind && is_unlocked(c, level, p.best_streak));
+    let ok = |id: &str, kind: Kind| COSMETICS.iter().any(|c| c.id == id && c.kind == kind && is_unlocked(c, level, p.best_streak, p.stats.case_reports));
     Look {
         stage: stage_for(level),
         hat: if ok(&settings.progression.hat, Kind::Hat) { settings.progression.hat.clone() } else { String::new() },
@@ -316,7 +323,7 @@ pub fn look(p: &Progress, settings: &Settings, now: DateTime<Local>) -> Look {
 /// Anime pets you've unlocked (id, name), for the squad pets' "Look" choice.
 pub fn unlocked_pets(p: &Progress) -> Vec<(&'static str, &'static str)> {
     let level = p.level();
-    COSMETICS.iter().filter(|c| c.kind == Kind::Pet && is_unlocked(c, level, p.best_streak)).map(|c| (c.id, c.name)).collect()
+    COSMETICS.iter().filter(|c| c.kind == Kind::Pet && is_unlocked(c, level, p.best_streak, p.stats.case_reports)).map(|c| (c.id, c.name)).collect()
 }
 
 pub fn pet_unlocked(p: &Progress, id: &str) -> bool {
@@ -327,7 +334,7 @@ pub fn unlocked_emotes(p: &Progress) -> Vec<(&'static str, &'static str)> {
     let level = p.level();
     COSMETICS
         .iter()
-        .filter(|c| c.kind == Kind::Emote && is_unlocked(c, level, p.best_streak))
+        .filter(|c| c.kind == Kind::Emote && is_unlocked(c, level, p.best_streak, p.stats.case_reports))
         .map(|c| (c.id, c.name))
         .collect()
 }
@@ -350,11 +357,16 @@ pub fn info(app: &AppHandle) -> ProgressInfo {
                 id: c.id,
                 kind: c.kind,
                 name: c.name,
-                unlocked: is_unlocked(c, level, p.best_streak),
+                unlocked: is_unlocked(c, level, p.best_streak, p.stats.case_reports),
                 requirement: requirement_text(c.needs),
             })
             .collect(),
     }
+}
+
+/// Saves progress.json now (other modules change stats too).
+pub fn save_now(app: &AppHandle) {
+    save(app);
 }
 
 fn save(app: &AppHandle) {
@@ -427,6 +439,9 @@ pub fn activity(app: &AppHandle, coding: bool) {
         award(app, 5 * streak.min(7), "daily streak");
     }
     crate::briefing::maybe_start_day(app);
+    if coding {
+        crate::detective::maybe_weekly(app);
+    }
     state::publish(app);
 }
 

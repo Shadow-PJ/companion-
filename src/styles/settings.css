@@ -450,3 +450,9 @@ canvas.preview.faded {
   gap: 6px;
   min-width: 220px;
 }
+/* token detective report */
+pre.report {
+  white-space: pre-wrap;
+  padding: 10px 12px;
+  max-height: 360px;
+}

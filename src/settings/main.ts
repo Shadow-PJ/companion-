@@ -302,6 +302,37 @@ function permissionsSection() {
   );
 }
 
+async function detectiveSection() {
+  const report = el("pre", { class: "diff report" });
+  async function load() {
+    const text = await invoke<string>("detective_last");
+    report.textContent = text || "No case report yet. Make one below.";
+  }
+  await load();
+  return section(
+    "Token detective",
+    "Finds what eats your Claude usage limits, from your local Claude Code logs: cache rebuilds after breaks, files Claude re-reads without changes, and long sessions that get expensive. It reads numbers, times, tool names and file paths, never your messages, and nothing leaves this PC.",
+    toggle("Token detective", null, () => settings.detective.enabled, (v) => (settings.detective.enabled = v)),
+    toggle("Weekly case report", "On your first coding activity each week, Glowby puts on his detective hat and shows what he found.", () => settings.detective.weekly, (v) => (settings.detective.weekly = v)),
+    toggle(
+      "Cache reminder",
+      "A minute before Claude's cache for a chat goes cold, if you haven't replied, Glowby mentions it once. Needs Glowby as Claude Code's status line (terminal sessions).",
+      () => settings.detective.cacheReminder,
+      (v) => (settings.detective.cacheReminder = v),
+    ),
+    el(
+      "div",
+      { class: "actions" },
+      button("Make a case report now", "primary", async () => {
+        await invoke("detective_run");
+        report.textContent = "Investigating…";
+        window.setTimeout(() => void load(), 4000);
+      }),
+    ),
+    report,
+  );
+}
+
 async function limitsSection() {
   const box = el("div");
   function render(view: LimitsView | null) {
@@ -1038,6 +1069,7 @@ async function main() {
     permissionsSection(),
     autoAllowSection(),
     await limitsSection(),
+    await detectiveSection(),
     chatSection(info),
     quickActionsSection(),
     helpersSection(),

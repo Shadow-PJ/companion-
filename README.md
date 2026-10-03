@@ -68,6 +68,13 @@ their normal prompt, so they're never blocked.
   to the other agent. Numbers are read on your PC: Codex's from its own logs, Claude's
   from Claude Code's status line (or estimated from your local token counts). They can be
   a few minutes old, and the forecast is only a guess from your recent pace.
+* **Token detective:** once a week Glowby puts on his detective hat 🔍 and shows a case
+  report of what ate your Claude limits: cache rebuilds after breaks (measured against
+  your real cache lifetime), files Claude re-read without changes, and sessions that got
+  expensive because they ran long. Each finding has a tip and its share of your week.
+  He also reminds you a minute before a chat's cache goes cold. It reads only numbers,
+  times, tool names and file paths from your local logs, never your messages.
+  `detective-report` prints the same report in a terminal.
 * **Moods:** working, happy when a task is done, alert when Claude needs you, sick while
   your tests or build fail, sleepy when it's quiet.
 

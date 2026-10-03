@@ -79,6 +79,7 @@ fn run() -> Option<String> {
             "session_id": payload.get("session_id"),
             "cwd": payload.pointer("/workspace/current_dir").or_else(|| payload.get("cwd")),
             "rate_limits": payload.get("rate_limits"),
+            "prompt_cache": payload.get("prompt_cache"),
         });
         let _ = send(&event, false, limits);
         return Some(text);

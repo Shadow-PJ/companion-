@@ -166,6 +166,48 @@ export function drawHat(ctx: CanvasRenderingContext2D, id: string, x: number, to
       circle(ctx, x + 16 + swing, top + 9, 2, "#FAC775");
       break;
     }
+    case "detective": {
+      // a tweed deerstalker: round crown, a brim in front and behind, flaps tied on top
+      const tweed = "#8C6B47";
+      const dark = "#5C4428";
+      ctx.fillStyle = dark;
+      ctx.beginPath();
+      ctx.ellipse(x - 14, top + 1, 9, 3.4, -0.3, 0, TAU);
+      ctx.ellipse(x + 14, top + 1, 9, 3.4, 0.3, 0, TAU);
+      ctx.fill();
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(x - 15, top + 2);
+      ctx.bezierCurveTo(x - 15, top - 16, x + 15, top - 16, x + 15, top + 2);
+      ctx.closePath();
+      ctx.fillStyle = tweed;
+      ctx.fill();
+      ctx.clip();
+      // the check pattern
+      ctx.strokeStyle = "rgba(255,226,180,0.35)";
+      ctx.lineWidth = 1;
+      for (const dx of [-9, -3, 3, 9]) {
+        ctx.beginPath();
+        ctx.moveTo(x + dx, top - 14);
+        ctx.lineTo(x + dx, top + 3);
+        ctx.stroke();
+      }
+      for (const dy of [-7, -2]) {
+        ctx.beginPath();
+        ctx.moveTo(x - 16, top + dy);
+        ctx.lineTo(x + 16, top + dy);
+        ctx.stroke();
+      }
+      ctx.restore();
+      // the little bow on top
+      ctx.fillStyle = dark;
+      ctx.beginPath();
+      ctx.ellipse(x - 3.2, top - 12.5, 3, 1.7, -0.4, 0, TAU);
+      ctx.ellipse(x + 3.2, top - 12.5, 3, 1.7, 0.4, 0, TAU);
+      ctx.fill();
+      circle(ctx, x, top - 12.5, 1.6, dark);
+      break;
+    }
   }
   ctx.restore();
 }

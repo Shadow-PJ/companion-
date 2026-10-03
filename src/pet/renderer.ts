@@ -18,7 +18,7 @@ const AVATAR_BODY_Y = 60;
 /** Anime pets: (x, y) is the centre of the head; ears reach ~47 px above it. */
 const CHIBI_BODY_Y = 54;
 /** Tall hats need Glowby to sit a little lower so the hat stays on screen. */
-const HAT_LIFT: Record<string, number> = { sprout: 10, party: 18, wizard: 24, gradcap: 10, crown: 9, beanie: 7, headphones: 3 };
+const HAT_LIFT: Record<string, number> = { sprout: 10, party: 18, wizard: 24, gradcap: 10, crown: 9, beanie: 7, headphones: 3, detective: 10 };
 /** Never draw more often than 60 times a second, even on 144 Hz screens. */
 const MIN_FRAME_MS = 1000 / 60 - 1;
 const EMOTE_SECONDS = 1.8;

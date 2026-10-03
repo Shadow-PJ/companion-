@@ -542,3 +542,33 @@ their normal prompt, so the "fail open" rule still holds.
 * **The forecast** is a straight line through the last 90 minutes of readings: if you
   went from 40% to 60% in 40 minutes, 40% more takes about 80 minutes. That's why every
   number shows "as of …" and estimates carry a "≈": people speed up and slow down.
+
+## Version 0.4: the token detective
+
+### 1. Let the data decide
+
+The first idea was "the cache expires after 5 minutes". The logs disagreed: every reply
+records whether it wrote a 5-minute or a 1-hour cache, and this user's sessions used the
+1-hour one. The report also prints the rebuild rate per pause length. Here it was 0% for
+pauses under an hour and 100% above, so the real lifetime is visible in the data
+instead of assumed.
+
+### 2. Don't blame the user for normal behaviour
+
+A session's first reply, the reply after `/compact`, and a model switch always rebuild
+the cache, so they aren't counted. Neither are rebuilds without a break (Claude Code
+changed its tools or settings). A file read again after Claude edited it, or after
+`/compact`, isn't waste either: Claude needs the fresh copy. Partial reads (`offset`)
+never count. Tips people stop trusting are worse than no tips.
+
+### 3. A tolerant parser for a format that isn't an API
+
+`crates/glowby-detective` reads the `.jsonl` logs line by line, skips anything it doesn't
+recognise, and counts each reply once (one reply is written as several lines with the
+same id). It never keeps message text; for a file read it keeps only the length.
+
+### 4. Check the checker
+
+The analyser started as a terminal command (`detective-report`) and its numbers were
+compared with a second, independently written script before Glowby used them: same
+reply count, same 8 rebuilds, same 3.4M tokens. Only then did the pet get its hat.

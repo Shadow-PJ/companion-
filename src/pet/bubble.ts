@@ -12,7 +12,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { diag } from "../shared/diag";
 import { button, compact, el } from "../shared/dom";
-import type { BriefingView, LimitsView, Offer, PermView, PetView, ProgressView, QuestView, QuizView, SquadMember } from "../shared/types";
+import type { BriefingView, CaseReport, LimitsView, Offer, PermView, PetView, ProgressView, QuestView, QuizView, SquadMember } from "../shared/types";
 
 const PHASE_LABEL: Record<string, string> = {
   idle: "Idle",
@@ -44,6 +44,8 @@ export class Bubble {
   private limitsOpen = false;
   private limitsBox = el("div", { class: "limits-card" });
   private limitsKey = "";
+  private caseBox = el("div", { class: "case-card" });
+  private caseKey = "";
   private squadBox = el("div", { class: "squad-card" });
   private squadKey = "";
   private squadError = "";
@@ -91,7 +93,7 @@ export class Bubble {
       el("div", { class: "title", text: "Drop it on me!" }),
       el("div", { class: "muted small", text: "Then tell me what to do with it." }),
     );
-    root.append(this.permBox, this.dropBox, this.menuBox, this.limitsBox, this.squadBox, this.chatBox, this.quizBox, this.briefBox, this.offerBox, this.noteBox);
+    root.append(this.permBox, this.dropBox, this.menuBox, this.limitsBox, this.squadBox, this.chatBox, this.caseBox, this.quizBox, this.briefBox, this.offerBox, this.noteBox);
   }
 
   render(v: PetView) {
@@ -108,6 +110,7 @@ export class Bubble {
       limits: false,
       squad: false,
       chat: false,
+      case: false,
       quiz: false,
       brief: false,
       offer: false,
@@ -120,6 +123,7 @@ export class Bubble {
     else if (this.limitsOpen && v.limits) show.limits = true;
     else if (squadPet) show.squad = true;
     else if (v.chatOpen) show.chat = true;
+    else if (v.caseReport) show.case = true;
     else if (v.quiz) show.quiz = true;
     else if (v.briefing) show.brief = true;
     else if (v.offer) show.offer = true;
@@ -131,6 +135,7 @@ export class Bubble {
     this.limitsBox.hidden = !show.limits;
     this.squadBox.hidden = !show.squad;
     this.chatBox.hidden = !show.chat;
+    this.caseBox.hidden = !show.case;
     this.quizBox.hidden = !show.quiz;
     this.briefBox.hidden = !show.brief;
     this.offerBox.hidden = !show.offer;
@@ -142,6 +147,7 @@ export class Bubble {
     if (show.limits && v.limits) this.renderLimits(v.limits);
     if (show.squad && squadPet) this.renderSquad(squadPet, v);
     if (show.chat) this.renderChat(v);
+    if (show.case && v.caseReport) this.renderCase(v.caseReport);
     if (show.quiz && v.quiz) this.renderQuiz(v.quiz);
     if (show.brief && v.briefing) this.renderBriefing(v.briefing, v.quests);
     if (show.offer && v.offer) this.renderOffer(v.offer);
@@ -195,9 +201,38 @@ export class Bubble {
         this.autoAllowControls(v),
         el("hr"),
         v.limits ? item("AI limits (Claude & Codex)", () => this.openLimits(), "subtle") : null,
+        item("Token detective: case report", () => void invoke("detective_run"), "subtle"),
         item("Chat with Claude…", () => this.openChat(), "subtle"),
         item("Today's briefing and quests", () => void invoke("briefing_show"), "subtle"),
         item("Settings…", () => void invoke("open_settings"), "subtle"),
+      ),
+    );
+  }
+
+  // ---------- token detective ----------
+
+  private renderCase(c: CaseReport) {
+    const key = JSON.stringify(c);
+    if (key === this.caseKey) return;
+    this.caseKey = key;
+    const findings = c.findings.map((f, i) =>
+      el(
+        "div",
+        { class: "case-finding" },
+        el("div", { class: "limit-head" }, el("strong", { text: `${i + 1}. ${f.title}` }), el("span", { class: "muted small", text: f.share })),
+        el("div", { class: "muted small", text: f.detail }),
+        el("div", { class: "line small", text: `Tip: ${f.tip}` }),
+        f.canFix ? el("div", { class: "actions" }, button("Ask Claude how to split it", "", () => void invoke("detective_fix", { index: i }))) : null,
+      ),
+    );
+    this.caseBox.replaceChildren(
+      ...compact(
+        el("div", { class: "eyebrow", text: `🔍 Token detective · case report${c.period ? ` · ${c.period}` : ""}` }),
+        c.running ? el("div", { class: "activity" }, el("span", { class: "spinner" }), el("span", { text: "Investigating your logs…" })) : null,
+        c.summary && !c.running ? el("div", { class: "muted small", text: c.summary }) : null,
+        ...(c.running ? [] : findings.length ? findings : [el("div", { class: "line", text: "No big leaks found this week. Nice work!" })]),
+        c.footnote && !c.running ? el("div", { class: "muted small", text: c.footnote }) : null,
+        el("div", { class: "actions" }, button("Close case", "ghost", () => void invoke("detective_close"))),
       ),
     );
   }

@@ -9,6 +9,7 @@ mod characters;
 mod chat;
 mod codex_hooks_installer;
 mod commands;
+mod detective;
 mod dropzone;
 mod error_watch;
 mod gamemode;
@@ -147,6 +148,10 @@ fn main() {
             commands::squad_set_look,
             commands::pet_petted,
             commands::limits_refresh,
+            commands::detective_run,
+            commands::detective_close,
+            commands::detective_fix,
+            commands::detective_last,
             commands::auto_allow_start,
             commands::auto_allow_stop,
             commands::auto_allow_log,

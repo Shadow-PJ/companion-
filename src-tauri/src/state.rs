@@ -34,6 +34,7 @@ pub struct Paths {
     pub squad_file: PathBuf,
     pub auto_log_file: PathBuf,
     pub limits_file: PathBuf,
+    pub detective_file: PathBuf,
 }
 
 pub struct AppState {
@@ -56,6 +57,7 @@ pub struct AppState {
     pub squad: Mutex<crate::squad::Squad>,
     pub auto_log: Mutex<crate::autoallow::AutoLog>,
     pub limits: Mutex<crate::limits::Limits>,
+    pub detective: Mutex<crate::detective::Detective>,
     timer: watch::Sender<Option<Instant>>,
     timer_rx: Mutex<Option<watch::Receiver<Option<Instant>>>>,
 }
@@ -122,6 +124,8 @@ pub struct Ui {
     pub auto_until: Option<Instant>,
     /// Questions auto-allowed since auto-allow was turned on.
     pub auto_count: u32,
+    /// The token detective's case report is open (Glowby wears the detective hat).
+    pub case_open: bool,
     last_hot_color: Option<Option<(u32, u8)>>,
     last_tooltip: String,
 }
@@ -155,6 +159,8 @@ pub struct PetView {
     pub auto_allow: Option<crate::autoallow::AutoAllowView>,
     /// Claude / Codex usage limits and the rough forecast (None = turned off).
     pub limits: Option<crate::limits::LimitsView>,
+    /// The token detective's case report, while it's open.
+    pub case_report: Option<crate::detective::CaseView>,
     pub follow_mouse: bool,
     pub hooks_installed: bool,
     pub game_active: bool,
@@ -188,8 +194,10 @@ impl AppState {
             squad_file: config_dir.join("squad.json"),
             auto_log_file: config_dir.join("auto-allowed.json"),
             limits_file: config_dir.join("limits.json"),
+            detective_file: config_dir.join("detective.json"),
             config_dir,
         };
+        let detective: crate::detective::Detective = settings::load_json(&paths.detective_file);
         let auto_log: crate::autoallow::AutoLog = settings::load_json(&paths.auto_log_file);
         let limits: crate::limits::Limits = settings::load_json(&paths.limits_file);
         let characters: crate::characters::Characters = settings::load_json(&paths.characters_file);
@@ -220,6 +228,7 @@ impl AppState {
             squad: Mutex::new(squad),
             auto_log: Mutex::new(auto_log),
             limits: Mutex::new(limits),
+            detective: Mutex::new(detective),
             timer,
             timer_rx: Mutex::new(Some(timer_rx)),
             paths,
@@ -294,6 +303,10 @@ fn view_and_deadline(app: &AppHandle) -> (PetView, Option<Instant>) {
     }
     let quests = crate::quests::views(app);
     let limits = crate::limits::view(app);
+    let case_report = crate::detective::view(app);
+    if case_report.is_some() {
+        look.hat = "detective".into(); // on the case
+    }
     let (quiz, quiz_deadline) = {
         let mut learn = lock(&state.learn);
         learn.expire(now);
@@ -392,6 +405,7 @@ fn view_and_deadline(app: &AppHandle) -> (PetView, Option<Instant>) {
         pets,
         auto_allow,
         limits,
+        case_report,
         follow_mouse: settings.pet.follow_mouse,
         hooks_installed: ui.hooks_installed,
         game_active: ui.game_active,

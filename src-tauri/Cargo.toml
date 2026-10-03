@@ -22,6 +22,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Small HTTPS client, used only by the optional GitHub CI check.
 ureq = { version = "3", features = ["json"] }
 glowby-protocol = { path = "../crates/glowby-protocol" }
+glowby-detective = { path = "../crates/glowby-detective" }
 
 [target.'cfg(windows)'.dependencies]
 # COM drop target for the hover strip (same crate version Tauri already uses).
