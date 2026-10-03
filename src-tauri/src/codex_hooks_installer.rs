@@ -1,8 +1,10 @@
-//! Installs Glowby's non-blocking status hooks for Codex in ~/.codex/hooks.json.
+//! Installs Glowby's hooks for Codex in ~/.codex/hooks.json.
 //!
-//! Codex hooks are deliberately all asynchronous here. Glowby receives activity,
-//! but never decides whether Codex may run a command. If Glowby is closed, slow,
-//! or crashes, Codex keeps working normally.
+//! The activity hooks run in the background: Glowby receives activity but
+//! they never slow Codex down. One hook, PermissionRequest, waits for an
+//! answer, so you can Allow / Deny Codex's questions on Glowby or let
+//! auto-allow answer them. It fails open: if Glowby is closed, slow, or
+//! doesn't answer, Codex shows its normal approval prompt.
 
 use crate::hooks_installer::{self, DiffLine, HooksStatus, Preview};
 use crate::settings;
@@ -23,6 +25,9 @@ const EVENTS: &[&str] = &[
     "SessionEnd",
     "Interrupt",
 ];
+
+/// Waits for Glowby's answer (same answer format as Claude Code's hook).
+const ANSWER_EVENTS: &[&str] = &["PermissionRequest"];
 
 pub fn settings_path(app: &AppHandle) -> PathBuf {
     app.path()
@@ -125,6 +130,21 @@ fn add_ours(root: &mut Value, hook: &Path) {
                     "async": true,
                     "timeout": 10,
                     "statusMessage": "Glowby is updating your pet"
+                }]
+            }));
+        }
+    }
+    for event in ANSWER_EVENTS {
+        let groups = hooks
+            .entry((*event).to_string())
+            .or_insert_with(|| json!([]));
+        if let Some(groups) = groups.as_array_mut() {
+            groups.push(json!({
+                "hooks": [{
+                    "type": "command",
+                    "command": command_for(hook, event),
+                    "timeout": 600,
+                    "statusMessage": "Waiting for your answer on Glowby"
                 }]
             }));
         }
@@ -245,7 +265,7 @@ pub fn status(app: &AppHandle) -> HooksStatus {
             return output;
         }
     };
-    let complete = EVENTS.iter().all(|event| {
+    let complete = EVENTS.iter().chain(ANSWER_EVENTS).all(|event| {
         root.pointer(&format!("/hooks/{event}"))
             .and_then(Value::as_array)
             .into_iter()
@@ -267,7 +287,7 @@ pub fn status(app: &AppHandle) -> HooksStatus {
     }) {
         output.state = "outdated";
         output.detail = Some(
-            "Some Glowby Codex hooks are missing or point to an old location. Update them.".into(),
+            "Some Glowby Codex hooks are missing (new: answering Codex's permission questions) or point to an old location. Update them, then trust them in Codex with /hooks.".into(),
         );
     }
     output
@@ -288,11 +308,17 @@ mod tests {
         assert_eq!(value, original);
     }
     #[test]
-    fn every_codex_hook_is_background_only() {
+    fn only_the_permission_hook_waits() {
         let mut value = json!({});
         add_ours(&mut value, Path::new(r"C:\\Glowby\\glowby-hook.exe"));
-        for groups in value["hooks"].as_object().unwrap().values() {
-            assert_eq!(groups[0]["hooks"][0]["async"], true);
+        for (event, groups) in value["hooks"].as_object().unwrap() {
+            let entry = &groups[0]["hooks"][0];
+            if event == "PermissionRequest" {
+                assert!(entry.get("async").is_none(), "Codex must wait for the answer");
+                assert_eq!(entry["timeout"], 600);
+            } else {
+                assert_eq!(entry["async"], true, "{event} runs in the background");
+            }
         }
     }
 }

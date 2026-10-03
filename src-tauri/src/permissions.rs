@@ -23,6 +23,8 @@ pub enum GateKind {
 pub struct Pending {
     pub id: u64,
     pub kind: GateKind,
+    /// "claude" or "codex"
+    pub agent: &'static str,
     pub session_id: String,
     pub project: String,
     pub title: String,
@@ -36,6 +38,8 @@ pub struct Pending {
 pub struct PermView {
     pub id: u64,
     pub kind: GateKind,
+    /// "claude" or "codex"
+    pub agent: &'static str,
     pub project: String,
     pub title: String,
     pub detail: String,
@@ -58,6 +62,7 @@ impl Queue {
         self.items.push_back(Pending {
             id: self.next_id,
             kind,
+            agent: crate::sessions::agent_of(payload),
             session_id: str_field(payload, "session_id").unwrap_or("").to_string(),
             project: project_name(str_field(payload, "cwd").unwrap_or("")),
             title,
@@ -99,6 +104,7 @@ impl Queue {
         Some(PermView {
             id: front.id,
             kind: front.kind,
+            agent: front.agent,
             project: front.project.clone(),
             title: front.title.clone(),
             detail: front.detail.clone(),

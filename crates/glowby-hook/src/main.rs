@@ -1,7 +1,9 @@
-//! glowby-hook.exe: the tiny program Claude Code runs for every hook event.
+//! glowby-hook.exe: the tiny program Claude Code (and Codex) run for every hook event.
 //!
 //! Usage (from ~/.claude/settings.json, "exec form", no shell involved):
 //!     glowby-hook.exe <EventName>        with the event JSON on stdin
+//!     glowby-hook.exe StatusLine         as Claude Code's status line: prints a short
+//!                                        line and passes your usage limits to Glowby
 //!
 //! GOLDEN RULE: FAIL OPEN.
 //! Whatever goes wrong (Glowby closed, crashed, slow, garbage data, a bug in this
@@ -69,7 +71,50 @@ fn run() -> Option<String> {
             return None;
         }
     };
+    if event == STATUS_LINE {
+        // Always print the line (even when Glowby is closed); pass on only the
+        // small part Glowby needs: your plan's usage limits.
+        let text = status_text(&payload);
+        let limits = json!({
+            "session_id": payload.get("session_id"),
+            "cwd": payload.pointer("/workspace/current_dir").or_else(|| payload.get("cwd")),
+            "rate_limits": payload.get("rate_limits"),
+        });
+        let _ = send(&event, false, limits);
+        return Some(text);
+    }
     trim_long_strings(&mut payload);
+    let pipe = send(&event, wants_reply, payload)?;
+    if !wants_reply {
+        return None;
+    }
+    let reply = wait_for_reply(pipe)?;
+    render_reply(&event, reply)
+}
+
+const STATUS_LINE: &str = "StatusLine";
+
+/// "Glowby · Opus · ctx 12% · 5h 23% · week 41%" from Claude Code's status line data.
+fn status_text(p: &Value) -> String {
+    let num = |path: &str| p.pointer(path).and_then(Value::as_f64);
+    let mut parts = vec!["Glowby".to_string()];
+    if let Some(model) = p.pointer("/model/display_name").and_then(Value::as_str) {
+        parts.push(model.to_string());
+    }
+    if let Some(c) = num("/context_window/used_percentage") {
+        parts.push(format!("ctx {c:.0}%"));
+    }
+    if let Some(v) = num("/rate_limits/five_hour/used_percentage") {
+        parts.push(format!("5h {v:.0}%"));
+    }
+    if let Some(v) = num("/rate_limits/seven_day/used_percentage") {
+        parts.push(format!("week {v:.0}%"));
+    }
+    parts.join(" · ")
+}
+
+/// Connects to Glowby and sends one event. Returns the pipe (to wait for a reply).
+fn send(event: &str, wants_reply: bool, payload: Value) -> Option<File> {
 
     let Some(pipe) = connect() else {
         debug("Glowby isn't listening (not running?)");
@@ -83,7 +128,7 @@ fn run() -> Option<String> {
 
     let envelope = HookEnvelope {
         v: PROTOCOL_VERSION,
-        event: event.clone(),
+        event: event.to_string(),
         wants_reply,
         from_pet_chat: std::env::var_os(PET_CHAT_ENV).is_some(),
         payload,
@@ -92,12 +137,7 @@ fn run() -> Option<String> {
     line.push('\n');
     (&pipe).write_all(line.as_bytes()).ok()?;
     (&pipe).flush().ok()?;
-
-    if !wants_reply {
-        return None;
-    }
-    let reply = wait_for_reply(pipe)?;
-    render_reply(&event, reply)
+    Some(pipe)
 }
 
 /// Reads exactly ONE JSON object from stdin and stops at its closing brace.
@@ -233,6 +273,17 @@ mod tests {
         let v = parse(render_reply(CHAT_GATE_EVENT, HookReply::Allow));
         assert_eq!(v["hookSpecificOutput"]["hookEventName"], "PreToolUse");
         assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+    }
+
+    #[test]
+    fn status_line_shows_usage_when_claude_code_provides_it() {
+        let full = json!({
+            "model": { "display_name": "Opus" },
+            "context_window": { "used_percentage": 12.4 },
+            "rate_limits": { "five_hour": { "used_percentage": 23.5, "resets_at": 1 }, "seven_day": { "used_percentage": 41.2 } }
+        });
+        assert_eq!(status_text(&full), "Glowby · Opus · ctx 12% · 5h 24% · week 41%");
+        assert_eq!(status_text(&json!({})), "Glowby", "no data: still prints a line");
     }
 
     #[test]

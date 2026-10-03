@@ -352,6 +352,14 @@ mod tests {
     }
 
     #[test]
+    fn codex_and_claude_events_are_told_apart() {
+        assert_eq!(agent_of(&json!({ "session_id": "a", "turn_id": "t1" })), "codex");
+        assert_eq!(agent_of(&json!({ "transcript_path": r"C:\Users\me\.codex\sessions\2026\x.jsonl" })), "codex");
+        assert_eq!(agent_of(&json!({ "transcript_path": "/home/me/.codex/sessions/x.jsonl" })), "codex");
+        assert_eq!(agent_of(&json!({ "transcript_path": r"C:\Users\me\.claude\projects\x\y.jsonl" })), "claude");
+    }
+
+    #[test]
     fn session_end_forgets_the_session() {
         let mut t = Tracker::new();
         ev(&mut t, "UserPromptSubmit", json!({}));
@@ -369,6 +377,16 @@ fn session_mood(s: &Session, now: Instant) -> Mood {
         Phase::Done if now.duration_since(s.phase_since) < HAPPY_FOR => Mood::Happy,
         _ => Mood::Idle,
     }
+}
+
+/// "codex" or "claude": Codex events carry a `turn_id` and keep their
+/// transcripts under ~/.codex; everything else is Claude Code.
+pub fn agent_of(p: &Value) -> &'static str {
+    let codex_log = str_field(p, "transcript_path").is_some_and(|t| {
+        let t = t.to_ascii_lowercase().replace('/', "\\");
+        t.contains("\\.codex\\")
+    });
+    if p.get("turn_id").is_some() || codex_log { "codex" } else { "claude" }
 }
 
 pub fn str_field<'a>(v: &'a Value, key: &str) -> Option<&'a str> {

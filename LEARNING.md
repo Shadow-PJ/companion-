@@ -520,3 +520,25 @@ downloading, hidden encoded commands and outside-the-project edits still ask. Th
 real `glowby-hook.exe` sent a pretend "npm test" permission question to a running Glowby
 with timed auto-allow on. It answered `allow` in about 0.1 s, the counter and the quiet
 log showed it, and Stop turned it off.
+
+### 3. Codex speaks the same language
+
+Codex's hooks were added as "watch only" at first. Its documentation shows a
+`PermissionRequest` hook whose answer looks exactly like Claude Code's
+(`hookSpecificOutput.decision.behavior: "allow"`), so the same `glowby-hook.exe` can
+answer both. Glowby tells them apart by the payload: Codex events carry a `turn_id`
+and keep their logs under `~/.codex`. If Glowby doesn't answer, both tools fall back to
+their normal prompt, so the "fail open" rule still holds.
+
+### 4. The AI limit forecast: exact numbers, honest guesses
+
+* **Codex** writes its real limit numbers (percent used, window length, reset time) into
+  its session logs after every reply. Glowby reads only the end of the newest log.
+* **Claude Code** hands its *status line* the exact 5-hour and weekly percentages. So
+  Glowby offers to be the status line (only if you don't have your own), prints a short
+  line, and passes the numbers on. Where no status line runs, Glowby adds up the token
+  counts in your local transcripts for the current 5-hour window, and learns your limit
+  the first time Claude stops with a rate-limit error.
+* **The forecast** is a straight line through the last 90 minutes of readings: if you
+  went from 40% to 60% in 40 minutes, 40% more takes about 80 minutes. That's why every
+  number shows "as of …" and estimates carry a "≈": people speed up and slow down.

@@ -17,6 +17,7 @@ mod health;
 mod hooks_installer;
 mod hotzone;
 mod learn;
+mod limits;
 mod permissions;
 mod pet_window;
 mod pipe_server;
@@ -60,7 +61,7 @@ fn main() {
                 applog::line(format!("hook program: {e}"));
             }
             let status = hooks_installer::status(&handle);
-            lock(&app.state::<AppState>().ui).hooks_installed = status.state == "installed";
+            lock(&app.state::<AppState>().ui).hooks_installed = matches!(status.state, "installed" | "outdated");
 
             // Order matters: windows first, then things that reference them.
             hotzone::create(&handle);
@@ -72,6 +73,7 @@ fn main() {
             state::spawn_mood_timer(handle.clone());
             tauri::async_runtime::spawn(pipe_server::run(handle.clone()));
             github::spawn(handle.clone()); // sleeps unless the CI check is turned on
+            limits::refresh_now(&handle); // fresh Claude / Codex limit numbers at start
 
             let game_active = lock(&app.state::<AppState>().ui).game_active;
             hotzone::set_visible(!game_active);
@@ -144,6 +146,7 @@ fn main() {
             commands::squad_chat_open,
             commands::squad_set_look,
             commands::pet_petted,
+            commands::limits_refresh,
             commands::auto_allow_start,
             commands::auto_allow_stop,
             commands::auto_allow_log,

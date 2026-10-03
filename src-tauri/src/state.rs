@@ -33,6 +33,7 @@ pub struct Paths {
     pub characters_dir: PathBuf,
     pub squad_file: PathBuf,
     pub auto_log_file: PathBuf,
+    pub limits_file: PathBuf,
 }
 
 pub struct AppState {
@@ -54,6 +55,7 @@ pub struct AppState {
     pub characters: Mutex<crate::characters::Characters>,
     pub squad: Mutex<crate::squad::Squad>,
     pub auto_log: Mutex<crate::autoallow::AutoLog>,
+    pub limits: Mutex<crate::limits::Limits>,
     timer: watch::Sender<Option<Instant>>,
     timer_rx: Mutex<Option<watch::Receiver<Option<Instant>>>>,
 }
@@ -151,6 +153,8 @@ pub struct PetView {
     pub pets: Vec<ActionView>,
     /// Auto-allow is on (timed or full); None = off.
     pub auto_allow: Option<crate::autoallow::AutoAllowView>,
+    /// Claude / Codex usage limits and the rough forecast (None = turned off).
+    pub limits: Option<crate::limits::LimitsView>,
     pub follow_mouse: bool,
     pub hooks_installed: bool,
     pub game_active: bool,
@@ -183,9 +187,11 @@ impl AppState {
             characters_dir: config_dir.join("characters"),
             squad_file: config_dir.join("squad.json"),
             auto_log_file: config_dir.join("auto-allowed.json"),
+            limits_file: config_dir.join("limits.json"),
             config_dir,
         };
         let auto_log: crate::autoallow::AutoLog = settings::load_json(&paths.auto_log_file);
+        let limits: crate::limits::Limits = settings::load_json(&paths.limits_file);
         let characters: crate::characters::Characters = settings::load_json(&paths.characters_file);
         let squad: crate::squad::Squad = settings::load_json(&paths.squad_file);
         let progress: Progress = settings::load_json(&paths.progress_file);
@@ -213,6 +219,7 @@ impl AppState {
             characters: Mutex::new(characters),
             squad: Mutex::new(squad),
             auto_log: Mutex::new(auto_log),
+            limits: Mutex::new(limits),
             timer,
             timer_rx: Mutex::new(Some(timer_rx)),
             paths,
@@ -286,6 +293,7 @@ fn view_and_deadline(app: &AppHandle) -> (PetView, Option<Instant>) {
         look.character.clear();
     }
     let quests = crate::quests::views(app);
+    let limits = crate::limits::view(app);
     let (quiz, quiz_deadline) = {
         let mut learn = lock(&state.learn);
         learn.expire(now);
@@ -383,6 +391,7 @@ fn view_and_deadline(app: &AppHandle) -> (PetView, Option<Instant>) {
         characters,
         pets,
         auto_allow,
+        limits,
         follow_mouse: settings.pet.follow_mouse,
         hooks_installed: ui.hooks_installed,
         game_active: ui.game_active,

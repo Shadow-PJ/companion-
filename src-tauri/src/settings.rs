@@ -31,6 +31,24 @@ pub struct Settings {
     pub github: GithubSettings,
     pub squad: SquadSettings,
     pub auto_allow: AutoAllowSettings,
+    pub limits: LimitsSettings,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default, rename_all = "camelCase")]
+pub struct LimitsSettings {
+    /// Show Claude / Codex usage limits and the "may run low" estimate.
+    pub enabled: bool,
+    /// Pop out with a tip when a limit gets tight.
+    pub warn: bool,
+    /// Warn at this percentage (50–98).
+    pub warn_percent: u32,
+}
+
+impl Default for LimitsSettings {
+    fn default() -> Self {
+        Self { enabled: true, warn: true, warn_percent: 80 }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -318,6 +336,7 @@ impl Default for Settings {
             github: GithubSettings::default(),
             squad: SquadSettings::default(),
             auto_allow: AutoAllowSettings::default(),
+            limits: LimitsSettings::default(),
         }
     }
 }
@@ -366,6 +385,7 @@ impl Settings {
         self.quests.per_day = self.quests.per_day.clamp(1, 5);
         self.github.every_mins = self.github.every_mins.clamp(5, 180);
         self.squad.max_shown = self.squad.max_shown.clamp(1, 6);
+        self.limits.warn_percent = self.limits.warn_percent.clamp(50, 98);
         self.auto_allow.never = self.auto_allow.never.iter().map(|r| r.trim().chars().take(120).collect::<String>()).filter(|r| !r.is_empty()).take(200).collect();
         let mut seen = std::collections::HashSet::new();
         self.quick_actions.actions.truncate(20);

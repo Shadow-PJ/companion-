@@ -124,6 +124,14 @@ pub fn offer_choice(app: &AppHandle, choice: &str) {
         state::publish(app);
         return;
     }
+    if taken.as_ref().is_some_and(|o| o.kind == "limits") {
+        // "Save a handoff note": a short note so you (or the other agent) can pick up later
+        if choice == "handoff" {
+            run_prompt(app, "Save a handoff note".into(), HANDOFF_TEMPLATE, false);
+        }
+        state::publish(app);
+        return;
+    }
     if taken.as_ref().is_some_and(|o| o.kind == "break") {
         match choice {
             "break" => {
@@ -165,6 +173,9 @@ pub fn offer_choice(app: &AppHandle, choice: &str) {
     }
     state::publish(app);
 }
+
+/// Used when a usage limit gets tight.
+const HANDOFF_TEMPLATE: &str = "My AI usage limit is running low. Write (or update) a short HANDOFF.md in the project root so I or another coding agent can continue later: what we're working on, what's done, what's left, the exact next steps, and any commands to run. Keep it brief. Don't change any other files.";
 
 pub fn save_health(app: &AppHandle) {
     let state = app.state::<AppState>();

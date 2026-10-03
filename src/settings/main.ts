@@ -6,7 +6,7 @@ import { setCharacterImage } from "../pet/character/images";
 import { DEFAULT_APPEARANCE, PetRenderer } from "../pet/renderer";
 import { playSound } from "../pet/sound";
 import { button, compact, el } from "../shared/dom";
-import type { AppInfo, AutoAllowEntry, CharacterInfo, ChatMode, CosmeticView, GithubStatus, HooksPreview, HooksStatus, Look, MonitorInfo, ProgressInfo, Settings } from "../shared/types";
+import type { AppInfo, AutoAllowEntry, CharacterInfo, ChatMode, CosmeticView, LimitsView, GithubStatus, HooksPreview, HooksStatus, Look, MonitorInfo, ProgressInfo, Settings } from "../shared/types";
 import { crop, nameFromFile } from "./cropper";
 
 const app = document.getElementById("app")!;
@@ -67,7 +67,7 @@ function quickConnectSection() {
       pending = { claude, codex };
       const content: Node[] = [
         el("h3", { text: "Review connections for Claude Code and Codex" }),
-        el("p", { class: "hint", text: "Check both changes below. Glowby backs up each settings file before applying it. Claude's hooks keep their existing permission flow; Codex hooks only report activity in the background." }),
+        el("p", { class: "hint", text: "Check both changes below. Glowby backs up each settings file before applying it. For both, the activity hooks run in the background; only the permission hook waits for your answer on Glowby (or auto-allow), and if Glowby is closed the normal prompt appears. For Claude, Glowby also becomes the status line (unless you have your own) so it can show your usage limits." }),
       ];
       for (const [name, preview] of [["Claude Code", claude], ["Codex", codex]] as const) {
         content.push(el("h3", { text: name }));
@@ -292,6 +292,57 @@ function permissionsSection() {
   );
 }
 
+async function limitsSection() {
+  const box = el("div");
+  function render(view: LimitsView | null) {
+    if (!view) {
+      box.replaceChildren(el("p", { class: "hint", text: "Turned off." }));
+      return;
+    }
+    box.replaceChildren(
+      ...view.agents.map((a) =>
+        el(
+          "div",
+          { class: "limits-agent" },
+          el("h3", { text: a.plan ? `${a.agent} (${a.plan} plan)` : a.agent }),
+          ...(a.windows.length
+            ? a.windows.map((w) =>
+                el(
+                  "p",
+                  { class: "hint" },
+                  el("strong", { text: `${w.label}: ${w.usedText}` }),
+                  ` · ${w.resetsText} · ${w.forecast} · ${w.exact ? "" : "estimate, "}${w.asOf}${w.stale ? " (may be out of date)" : ""}`,
+                ),
+              )
+            : [el("p", { class: "hint", text: a.emptyHint })]),
+        ),
+      ),
+    );
+  }
+  render(await invoke<LimitsView | null>("limits_refresh"));
+  return section(
+    "AI limits (Claude & Codex)",
+    "How much of your Claude and Codex usage limits you've used, when they reset, and a rough guess of when you may run low. Codex's numbers and Claude's numbers from Claude Code's status line are exact, but can be a few minutes old. Without the status line, Glowby estimates Claude from the token counts in your local transcripts. The \"runs low in\" time assumes you keep your recent pace, so treat it as a hint. Everything is read on this PC; nothing is sent anywhere.",
+    toggle("Show AI limits", null, () => settings.limits.enabled, (v) => (settings.limits.enabled = v)),
+    toggle(
+      "Warn me when a limit gets tight",
+      "Glowby pops out once per window and suggests saving a handoff note, or switching to the other agent if it has more left.",
+      () => settings.limits.warn,
+      (v) => (settings.limits.warn = v),
+    ),
+    numberInput("Warn at", "50 to 98 percent.", 50, 98, () => settings.limits.warnPercent, (v) => (settings.limits.warnPercent = v), "%"),
+    box,
+    el(
+      "div",
+      { class: "actions" },
+      button("Refresh", "ghost", async () => {
+        await invoke("limits_refresh");
+        window.setTimeout(async () => render(await invoke<LimitsView | null>("limits_refresh")), 1500);
+      }),
+    ),
+  );
+}
+
 function autoAllowSection() {
   const a = settings.autoAllow;
   const timed = el("div", { class: "actions" });
@@ -335,8 +386,8 @@ function autoAllowSection() {
 
   void renderLog();
   return section(
-    "Auto-allow (Claude Code)",
-    "Let Glowby answer Claude Code's permission questions with Allow for you: for a while (also from the right-click menu), or always with full auto. Anything on the never-auto list still asks you. Codex is never affected: its hooks only watch.",
+    "Auto-allow (Claude Code & Codex)",
+    "Let Glowby answer Claude Code's and Codex's permission questions with Allow for you: for a while (also from the right-click menu), or always with full auto. Anything on the never-auto list still asks you. Codex needs its connection updated once (Connect to Codex → Update) and the hooks trusted with /hooks.",
     row("Timed auto-allow", "Turns itself off when the time is up, and when Glowby restarts.", timed),
     toggle(
       "Full auto",
@@ -966,7 +1017,7 @@ async function main() {
     ),
     hooksSection(
       "Connect to Codex",
-      "Glowby listens to Codex through background-only hooks. They report activity but can never delay, approve, deny, or block a Codex action.",
+      "Glowby follows Codex through hooks. The activity hooks run in the background and never slow Codex down. The permission hook lets you answer Codex's questions on Glowby (or auto-allow them); if Glowby is closed or doesn't answer, Codex shows its normal prompt.",
       { status: "codex_hooks_status", preview: "codex_hooks_preview", apply: "codex_hooks_apply" },
       "Restart running Codex sessions, then use /hooks to review and trust Glowby's hooks.",
     ),
@@ -976,6 +1027,7 @@ async function main() {
     petSection(monitors),
     permissionsSection(),
     autoAllowSection(),
+    await limitsSection(),
     chatSection(info),
     quickActionsSection(),
     helpersSection(),

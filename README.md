@@ -43,24 +43,31 @@ Enter, and put a shortcut to `Glowby.exe` in the folder that opens.
    Glowby's hook entries.
 3. Hover the top edge of your screen (the thin line) to call Glowby out.
 
-Codex hooks only report status in the background. They can never approve, deny, delay, or
-block a Codex action. If Glowby is closed, Codex keeps working normally.
+The activity hooks run in the background. Only the permission hook waits for your answer
+on Glowby, and if Glowby is closed (or doesn't answer in time) Claude Code and Codex show
+their normal prompt, so they're never blocked.
 
 ## What Glowby does
 
-**Watches Claude Code for you**
+**Watches Claude Code and Codex for you**
 
-* **Live status:** hover the line at the top edge to see what Claude is doing right now
-  ("Editing main.rs", "Running npm test"). The line turns blue while Claude works and
+* **Live status:** hover the line at the top edge to see what your agent is doing right now
+  ("Editing main.rs", "Running npm test"). The line turns blue while it works and
   amber when it needs you.
-* **Permission questions:** when Claude asks to run something, answer **Allow / Deny** on
-  Glowby. No answer in time? The question goes back to the terminal.
+* **Permission questions:** when Claude Code or Codex asks to run something, answer
+  **Allow / Deny** on Glowby. No answer in time? The question goes back to them.
 * **Auto-allow:** right-click Glowby → **Auto-allow 15 min / 30 min / 1 hour**, or turn on
-  **Full auto** in Settings, and Glowby answers Claude Code's questions with Allow for
-  you. Risky things still ask: deleting files, `git push`, `reset --hard`, installing
-  software, downloads, and file changes outside the project (your **never-auto list**
-  in Settings). A quiet log in Settings lists everything that was auto-allowed.
-  Codex is never auto-allowed: its hooks only watch.
+  **Full auto** in Settings, and Glowby answers Claude Code's and Codex's questions with
+  Allow for you. Risky things still ask: deleting files, `git push`, `reset --hard`,
+  installing software, downloads, and file changes outside the project (your
+  **never-auto list** in Settings). A quiet log in Settings lists everything that was
+  auto-allowed.
+* **AI limits:** right-click Glowby → **AI limits** shows how much of your Claude (5-hour
+  and weekly) and Codex limits you've used, when they reset, and a rough "you may run low
+  in …" guess. When a limit gets tight, Glowby suggests saving a handoff note or switching
+  to the other agent. Numbers are read on your PC: Codex's from its own logs, Claude's
+  from Claude Code's status line (or estimated from your local token counts). They can be
+  a few minutes old, and the forecast is only a guess from your recent pace.
 * **Moods:** working, happy when a task is done, alert when Claude needs you, sick while
   your tests or build fail, sleepy when it's quiet.
 

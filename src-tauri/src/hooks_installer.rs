@@ -175,6 +175,10 @@ fn is_ours(entry: &Value) -> bool {
 /// `drop_empty_hooks`: also remove a now-empty "hooks" key (uninstall). When
 /// reinstalling we keep it, so the key stays where it was in your file.
 fn strip_ours(root: &mut Value, drop_empty_hooks: bool) {
+    // uninstall: our status line goes too (yours is never touched)
+    if drop_empty_hooks && root.get("statusLine").is_some_and(is_our_status_line) {
+        root.as_object_mut().map(|o| o.shift_remove("statusLine"));
+    }
     let Some(hooks) = root.get_mut("hooks").and_then(Value::as_object_mut) else { return };
     for groups in hooks.values_mut() {
         if let Some(groups) = groups.as_array_mut() {
@@ -193,8 +197,30 @@ fn strip_ours(root: &mut Value, drop_empty_hooks: bool) {
     }
 }
 
+/// The status line command. A path without spaces needs no quotes, which works
+/// in every shell; forward slashes avoid backslash escapes in bash.
+pub fn status_line_command(hook: &str) -> String {
+    let path = hook.replace('\\', "/");
+    if path.contains(' ') { format!("\"{path}\" StatusLine") } else { format!("{path} StatusLine") }
+}
+
+fn is_our_status_line(v: &Value) -> bool {
+    v.get("command").and_then(Value::as_str).is_some_and(|c| c.to_ascii_lowercase().contains(HOOK_EXE))
+}
+
 fn add_ours(root: &mut Value, hook: &str) {
     let obj = root.as_object_mut().expect("settings root is an object");
+    // Claude Code passes your usage limits only to its status line, so Glowby
+    // becomes the status line, but never replaces one you set up yourself.
+    match obj.get_mut("statusLine") {
+        None => {
+            obj.insert("statusLine".into(), json!({ "type": "command", "command": status_line_command(hook), "padding": 0 }));
+        }
+        Some(line) if is_our_status_line(line) => {
+            line["command"] = Value::String(status_line_command(hook));
+        }
+        Some(_) => {}
+    }
     let hooks = obj.entry("hooks").or_insert_with(|| Value::Object(Map::new()));
     let Some(hooks) = hooks.as_object_mut() else { return };
     let mut add = |event: &str, entry: Value| {
@@ -322,6 +348,21 @@ mod tests {
     }
 
     #[test]
+    fn glowby_becomes_the_status_line_but_never_replaces_yours() {
+        let mut v = json!({ "theme": "dark" });
+        add_ours(&mut v, HOOK);
+        assert_eq!(v["statusLine"]["command"], "C:/Users/me/AppData/Local/Glowby/bin/glowby-hook.exe StatusLine");
+        strip_ours(&mut v, true);
+        assert!(v.get("statusLine").is_none(), "uninstall removes ours");
+        let mut mine = json!({ "statusLine": { "type": "command", "command": "my-line.sh" } });
+        add_ours(&mut mine, HOOK);
+        assert_eq!(mine["statusLine"]["command"], "my-line.sh");
+        strip_ours(&mut mine, true);
+        assert_eq!(mine["statusLine"]["command"], "my-line.sh", "yours stays on uninstall too");
+        assert_eq!(status_line_command(r"C:\Users\Jo Doe\x\glowby-hook.exe"), "\"C:/Users/Jo Doe/x/glowby-hook.exe\" StatusLine");
+    }
+
+    #[test]
     fn reinstall_keeps_the_order_of_your_settings() {
         // Map equality ignores order, so compare the text Claude Code would see.
         let mut v = json!({ "hooks": {}, "model": "x", "theme": "dark" });
@@ -331,7 +372,7 @@ mod tests {
         add_ours(&mut v, HOOK);
         assert_eq!(v.to_string(), installed);
         let keys: Vec<&String> = v.as_object().unwrap().keys().collect();
-        assert_eq!(keys, ["hooks", "model", "theme"]);
+        assert_eq!(keys, ["hooks", "model", "theme", "statusLine"]);
     }
 
     #[test]
@@ -394,6 +435,10 @@ pub fn status(app: &AppHandle) -> HooksStatus {
     let all: Vec<(bool, bool)> = LISTEN_EVENTS.iter().chain(ANSWER_EVENTS).map(|e| ours_for(e)).collect();
     if all.iter().all(|(_, current)| *current) && hook.is_file() {
         out.state = "installed";
+        if root.get("statusLine").is_none() {
+            out.state = "outdated";
+            out.detail = Some("Update to let Glowby show your Claude usage limits (it adds Glowby as Claude Code's status line).".into());
+        }
     } else if all.iter().any(|(any, _)| *any) {
         out.state = "outdated";
         out.detail = Some("Some Glowby hooks are missing or point to an old location. Update them.".into());

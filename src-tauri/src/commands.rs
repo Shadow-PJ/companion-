@@ -104,6 +104,13 @@ pub fn squad_set_look(app: AppHandle, id: String, character: String, species: Op
     crate::squad::set_look(&app, &id, &character, species.as_deref().unwrap_or(""))
 }
 
+/// Opening the limits card or Settings: read fresh numbers (arrive a moment later).
+#[tauri::command]
+pub fn limits_refresh(app: AppHandle) -> Option<crate::limits::LimitsView> {
+    crate::limits::refresh_now(&app);
+    crate::limits::view(&app)
+}
+
 /// Timed auto-allow from the right-click menu or Settings (15 / 30 / 60 minutes).
 #[tauri::command]
 pub fn auto_allow_start(app: AppHandle, minutes: u32) {
@@ -384,7 +391,7 @@ pub fn list_monitors(app: AppHandle) -> Vec<MonitorInfo> {
 #[tauri::command]
 pub fn hooks_status(app: AppHandle) -> HooksStatus {
     let status = hooks_installer::status(&app);
-    lock(&app.state::<AppState>().ui).hooks_installed = status.state == "installed";
+    lock(&app.state::<AppState>().ui).hooks_installed = matches!(status.state, "installed" | "outdated");
     status
 }
 

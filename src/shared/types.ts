@@ -14,6 +14,7 @@ export interface StatusView {
 export interface PermView {
   id: number;
   kind: "permission" | "chatGate";
+  agent: "claude" | "codex";
   project: string;
   title: string;
   detail: string;
@@ -69,7 +70,7 @@ export interface ProgressInfo {
 }
 
 export interface Offer {
-  kind: "clipboardError" | "failingChecks" | "break" | "ci";
+  kind: "clipboardError" | "failingChecks" | "break" | "ci" | "limits";
   title: string;
   detail: string;
   project: string;
@@ -190,6 +191,8 @@ export interface PetView {
   pets: ActionView[];
   /** Auto-allow is on (timed or full); null = off. */
   autoAllow: { full: boolean; minutesLeft: number | null; allowed: number } | null;
+  /** Claude / Codex usage limits (null = turned off). */
+  limits: LimitsView | null;
   followMouse: boolean;
   hooksInstalled: boolean;
   gameActive: boolean;
@@ -232,10 +235,28 @@ export interface Settings {
   github: { enabled: boolean; everyMins: number };
   squad: { enabled: boolean; maxShown: number };
   autoAllow: { full: boolean; never: string[]; outsideProject: boolean };
+  limits: { enabled: boolean; warn: boolean; warnPercent: number };
+}
+
+export interface LimitWindow {
+  label: string;
+  used: number | null;
+  usedText: string;
+  resetsText: string;
+  forecast: string;
+  asOf: string;
+  stale: boolean;
+  exact: boolean;
+  tight: boolean;
+}
+
+export interface LimitsView {
+  agents: { agent: string; plan: string; windows: LimitWindow[]; emptyHint: string }[];
 }
 
 export interface AutoAllowEntry {
   at: string;
+  agent?: string;
   project: string;
   what: string;
   mode: "timed" | "full";

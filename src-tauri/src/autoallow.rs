@@ -7,7 +7,8 @@
 //! the project folder. Every auto-allowed action is written to a quiet log
 //! (auto-allowed.json) you can read in Settings.
 //!
-//! Only Claude Code is affected. Codex hooks are watch-only and never decide.
+//! Works for Claude Code and Codex: both send their permission questions to
+//! Glowby's PermissionRequest hook in the same format.
 
 use crate::settings::{self, AutoAllowSettings};
 use crate::state::{self, AppState, lock};
@@ -113,6 +114,9 @@ fn inside(path: &str, cwd: &str) -> bool {
 #[serde(rename_all = "camelCase")]
 pub struct Entry {
     pub at: String,
+    /// "claude" or "codex"
+    #[serde(default)]
+    pub agent: String,
     pub project: String,
     pub what: String,
     /// "timed" or "full"
@@ -187,6 +191,7 @@ pub fn try_allow(app: &AppHandle, payload: &Value) -> bool {
     }
     let entry = Entry {
         at: chrono::Local::now().to_rfc3339(),
+        agent: crate::sessions::agent_of(payload).into(),
         project: crate::sessions::project_name(cwd),
         what: crate::sessions::shorten(&describe(tool, &input), 160),
         mode: mode.into(),

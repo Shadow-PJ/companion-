@@ -12,7 +12,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { diag } from "../shared/diag";
 import { button, compact, el } from "../shared/dom";
-import type { BriefingView, Offer, PermView, PetView, ProgressView, QuestView, QuizView, SquadMember } from "../shared/types";
+import type { BriefingView, LimitsView, Offer, PermView, PetView, ProgressView, QuestView, QuizView, SquadMember } from "../shared/types";
 
 const PHASE_LABEL: Record<string, string> = {
   idle: "Idle",
@@ -40,6 +40,10 @@ export class Bubble {
   squadSelected: string | null = null;
   private view: PetView | null = null;
   private menuOpen = false;
+  /** The AI limits card is open (right-click → AI limits). */
+  private limitsOpen = false;
+  private limitsBox = el("div", { class: "limits-card" });
+  private limitsKey = "";
   private squadBox = el("div", { class: "squad-card" });
   private squadKey = "";
   private squadError = "";
@@ -87,7 +91,7 @@ export class Bubble {
       el("div", { class: "title", text: "Drop it on me!" }),
       el("div", { class: "muted small", text: "Then tell me what to do with it." }),
     );
-    root.append(this.permBox, this.dropBox, this.menuBox, this.squadBox, this.chatBox, this.quizBox, this.briefBox, this.offerBox, this.noteBox);
+    root.append(this.permBox, this.dropBox, this.menuBox, this.limitsBox, this.squadBox, this.chatBox, this.quizBox, this.briefBox, this.offerBox, this.noteBox);
   }
 
   render(v: PetView) {
@@ -101,6 +105,7 @@ export class Bubble {
       perm: !!v.permission,
       drop: false,
       menu: false,
+      limits: false,
       squad: false,
       chat: false,
       quiz: false,
@@ -112,6 +117,7 @@ export class Bubble {
       // a question always wins
     } else if (v.dropHover) show.drop = true;
     else if (this.menuOpen) show.menu = true;
+    else if (this.limitsOpen && v.limits) show.limits = true;
     else if (squadPet) show.squad = true;
     else if (v.chatOpen) show.chat = true;
     else if (v.quiz) show.quiz = true;
@@ -122,6 +128,7 @@ export class Bubble {
     this.permBox.hidden = !show.perm;
     this.dropBox.hidden = !show.drop;
     this.menuBox.hidden = !show.menu;
+    this.limitsBox.hidden = !show.limits;
     this.squadBox.hidden = !show.squad;
     this.chatBox.hidden = !show.chat;
     this.quizBox.hidden = !show.quiz;
@@ -132,6 +139,7 @@ export class Bubble {
     if (v.permission) this.renderPermission(v.permission);
     else this.stopCountdown();
     if (show.menu) this.renderMenu(v);
+    if (show.limits && v.limits) this.renderLimits(v.limits);
     if (show.squad && squadPet) this.renderSquad(squadPet, v);
     if (show.chat) this.renderChat(v);
     if (show.quiz && v.quiz) this.renderQuiz(v.quiz);
@@ -163,7 +171,7 @@ export class Bubble {
   }
 
   private renderMenu(v: PetView) {
-    const key = JSON.stringify([v.quickActions, v.emotes, v.autoAllow]);
+    const key = JSON.stringify([v.quickActions, v.emotes, v.autoAllow, !!v.limits]);
     if (key === this.menuKey) return;
     this.menuKey = key;
     const item = (label: string, onClick: () => void, extra = "") =>
@@ -183,12 +191,62 @@ export class Bubble {
         emotes.length ? el("div", { class: "eyebrow", text: "Emotes" }) : null,
         emotes.length ? el("div", { class: "emotes" }, ...emotes) : null,
         el("hr"),
-        el("div", { class: "eyebrow", text: "Auto-allow Claude's questions" }),
+        el("div", { class: "eyebrow", text: "Auto-allow questions (Claude & Codex)" }),
         this.autoAllowControls(v),
         el("hr"),
+        v.limits ? item("AI limits (Claude & Codex)", () => this.openLimits(), "subtle") : null,
         item("Chat with Claude…", () => this.openChat(), "subtle"),
         item("Today's briefing and quests", () => void invoke("briefing_show"), "subtle"),
         item("Settings…", () => void invoke("open_settings"), "subtle"),
+      ),
+    );
+  }
+
+  // ---------- AI limits ----------
+
+  openLimits() {
+    this.limitsOpen = true;
+    this.menuOpen = false;
+    this.limitsKey = "";
+    void invoke("limits_refresh"); // fresh numbers arrive with the next update
+    this.rerender();
+  }
+
+  private renderLimits(l: LimitsView) {
+    const key = JSON.stringify(l);
+    if (key === this.limitsKey) return;
+    this.limitsKey = key;
+    const agents = l.agents.map((a) =>
+      el(
+        "div",
+        { class: "limits-agent" },
+        el("div", { class: "title", text: a.plan ? `${a.agent} · ${a.plan} plan` : a.agent }),
+        ...(a.windows.length
+          ? a.windows.map((w) =>
+              el(
+                "div",
+                { class: "limit" + (w.tight ? " tight" : "") + (w.stale ? " stale" : "") },
+                el("div", { class: "limit-head" }, el("span", { text: `${w.label} limit` }), el("strong", { text: w.usedText })),
+                w.used !== null ? el("div", { class: "xpbar" }, el("span", { style: `width:${Math.min(100, Math.max(0, w.used))}%` })) : null,
+                el("div", { class: "muted small", text: `${w.resetsText} · ${w.forecast}` }),
+                el("div", { class: "muted small", text: `${w.exact ? "" : "Estimate · "}${w.asOf}${w.stale ? " (may be out of date)" : ""}` }),
+              ),
+            )
+          : [el("div", { class: "muted small", text: a.emptyHint })]),
+      ),
+    );
+    this.limitsBox.replaceChildren(
+      el("div", { class: "eyebrow", text: "AI limits" }),
+      ...agents,
+      el("div", { class: "muted small", text: "Numbers can be a few minutes old. “Runs low in” is a rough guess from your recent pace." }),
+      el(
+        "div",
+        { class: "actions" },
+        button("Refresh", "", () => void invoke("limits_refresh")),
+        button("Close", "ghost", () => {
+          this.limitsOpen = false;
+          this.rerender();
+        }),
       ),
     );
   }
@@ -229,6 +287,11 @@ export class Bubble {
       this.closeSquad();
       return;
     }
+    if (this.limitsOpen) {
+      this.limitsOpen = false;
+      this.rerender();
+      return;
+    }
     if (this.view?.chatOpen) this.closeChat();
     else this.openChat();
   }
@@ -258,6 +321,7 @@ export class Bubble {
   /** Glowby slid away: forget the menu and the squad card. */
   onHidden() {
     this.menuOpen = false;
+    this.limitsOpen = false;
     if (this.squadSelected) {
       this.squadSelected = null;
       this.onSquadChange();
@@ -549,6 +613,24 @@ export class Bubble {
       );
       return;
     }
+    if (o.kind === "limits") {
+      this.offerBox.replaceChildren(
+        el("div", { class: "eyebrow" }, el("span", { class: "dot attention" }), "AI limits"),
+        el("div", { class: "title", text: o.title }),
+        el("div", { class: "line", text: o.detail }),
+        el(
+          "div",
+          { class: "actions" },
+          button("Save a handoff note", "primary", choose("handoff"), "Ask Claude to write HANDOFF.md: what you're doing and the next steps"),
+          button("Show limits", "", () => {
+            void invoke("offer_action", { choice: "dismiss" });
+            this.openLimits();
+          }),
+          button("OK", "ghost", choose("dismiss")),
+        ),
+      );
+      return;
+    }
     if (o.kind === "break") {
       this.offerBox.replaceChildren(
         el("div", { class: "eyebrow", text: "Glowby" }),
@@ -593,7 +675,10 @@ export class Bubble {
     this.countdown = el("div", { class: "muted small" });
     this.permBox.replaceChildren(
       ...compact(
-        el("div", { class: "eyebrow", text: isChat ? `Glowby chat · ${p.project}` : `${p.project || "Claude Code"} · permission` }),
+        el("div", {
+          class: "eyebrow",
+          text: isChat ? `Glowby chat · ${p.project}` : `${p.agent === "codex" ? "Codex" : "Claude Code"}${p.project ? ` · ${p.project}` : ""} · permission`,
+        }),
         el("div", { class: "title", text: p.title }),
         p.detail ? el("pre", { class: "detail", text: p.detail }) : null,
         el(
@@ -601,7 +686,7 @@ export class Bubble {
           { class: "actions" },
           button("Allow", "primary", () => answer("allow")),
           button("Deny", "", () => answer("deny")),
-          isChat ? null : button("In terminal", "ghost", () => answer("terminal"), "Answer in the terminal instead"),
+          isChat ? null : p.agent === "codex" ? button("In Codex", "ghost", () => answer("terminal"), "Answer in Codex instead") : button("In terminal", "ghost", () => answer("terminal"), "Answer in the terminal instead"),
         ),
         this.countdown,
         p.queued > 0 ? el("div", { class: "muted small", text: `+${p.queued} more waiting` }) : null,
@@ -615,7 +700,7 @@ export class Bubble {
   private updateCountdown(isChat: boolean) {
     if (!this.countdown) return;
     const secs = Math.max(0, Math.ceil((this.deadline - Date.now()) / 1000));
-    this.countdown.textContent = isChat ? `Not allowed automatically in ${secs}s` : `Goes back to the terminal in ${secs}s`;
+    this.countdown.textContent = isChat ? `Not allowed automatically in ${secs}s` : `Goes back to ${this.view?.permission?.agent === "codex" ? "Codex" : "the terminal"} in ${secs}s`;
   }
 
   private stopCountdown() {
