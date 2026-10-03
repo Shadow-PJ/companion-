@@ -297,7 +297,7 @@ export class Bubble {
         v.characters.length ? null : el("div", { class: "muted small", text: "Import characters in Settings to dress up your squad." }),
         this.squadError ? el("div", { class: "error", text: this.squadError }) : null,
         el("div", { class: "actions" }, chat, button("Close", "ghost", () => this.closeSquad())),
-        el("div", { class: "muted small", text: "Chat talks to a copy of this session, so the one in your terminal isn't disturbed." }),
+        el("div", { class: "muted small", text: "Chat works in this session's folder (for Claude Code sessions, on a copy of the conversation, so your terminal isn't disturbed)." }),
       ),
     );
   }
@@ -398,11 +398,11 @@ export class Bubble {
 
     let notice: (Node | string)[] = [];
     if (!c.enabled) notice = ["Chat is turned off in Settings."];
-    else if (!c.hasProject) notice = ["Which project should Claude work in? Click “Choose folder”."];
+    else if (!c.hasProject) notice = ["Start a Claude Code or Codex session once and I'll use its folder, or click “Choose folder”."];
     else if (c.folderSource === "squad" && !c.reply && !c.busy)
-      notice = [`${c.squadName} knows what its session did. You're talking to a copy, so the session in your terminal isn't disturbed.`];
+      notice = [`Chatting in ${c.squadName}'s project. For a Claude Code session it also knows what the session did (on a copy, so your terminal isn't disturbed).`];
     else if (c.folderSource === "recent" && !c.reply && !c.busy && !hasFiles)
-      notice = [`Using your latest Claude Code project. Click the folder to change it.`];
+      notice = [`Working in the folder your Claude Code or Codex sessions used last. Click the folder to change it.`];
     this.chatNotice.replaceChildren(...notice);
     this.chatNotice.hidden = notice.length === 0;
     this.chatForm.hidden = !c.enabled;

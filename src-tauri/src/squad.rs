@@ -365,6 +365,18 @@ pub fn chat_target(app: &AppHandle, id: &str) -> Option<ChatTarget> {
     Path::new(&dir).is_dir().then(|| ChatTarget { session_id: id.to_string(), name: m.name.clone(), dir })
 }
 
+/// True if Claude Code has this conversation on disk
+/// (~/.claude/projects/<folder>/<id>.jsonl), so `--resume` can open it.
+/// Codex sessions aren't there.
+pub fn is_claude_session(id: &str) -> bool {
+    let safe = !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
+    let Some(home) = std::env::var_os("USERPROFILE") else { return false };
+    let projects = Path::new(&home).join(".claude").join("projects");
+    safe && std::fs::read_dir(projects)
+        .map(|dirs| dirs.flatten().any(|d| d.path().join(format!("{id}.jsonl")).is_file()))
+        .unwrap_or(false)
+}
+
 /// The chat's own copy of this session, if one exists.
 pub fn fork_of(app: &AppHandle, id: &str) -> String {
     lock(&app.state::<AppState>().squad).members.get(id).map(|m| m.fork.clone()).unwrap_or_default()

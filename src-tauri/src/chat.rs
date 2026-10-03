@@ -126,16 +126,22 @@ fn attachment_context(attachments: &[PathBuf], project_dir: &str) -> (String, Ve
     (text, dirs)
 }
 
-/// The folder the chat works in: the one you chose, otherwise the folder of
-/// your most recent Claude Code session.
+/// The folder the chat works in, picked automatically so you don't have to:
+/// 1. the one you chose in Settings (if you did),
+/// 2. the folder of the Claude Code or Codex session that's active right now,
+/// 3. the last folder any session worked in (remembered across restarts),
+/// 4. your most recent project.
 pub fn effective_dir(state: &AppState, settings: &Settings) -> (String, &'static str) {
     let chosen = settings.chat.project_dir.trim();
     if !chosen.is_empty() && Path::new(chosen).is_dir() {
         return (chosen.to_string(), "chosen");
     }
-    match lock(&state.tracker).latest_project_dir() {
-        Some(dir) if Path::new(&dir).is_dir() => (dir, "recent"),
-        _ => (String::new(), "none"),
+    if let Some(dir) = lock(&state.tracker).latest_project_dir().filter(|d| Path::new(d).is_dir()) {
+        return (dir, "recent");
+    }
+    match lock(&state.projects).remembered_dir(|d| Path::new(d).is_dir()) {
+        Some(dir) => (dir, "recent"),
+        None => (String::new(), "none"),
     }
 }
 
@@ -310,7 +316,15 @@ async fn send_inner(app: &AppHandle, request: ChatRequest) -> Result<(), String>
     let resume: Option<(String, bool)> = match &target {
         Some((session_id, _)) => {
             let fork = crate::squad::fork_of(&app, session_id);
-            if settings.chat.keep_conversation && !fork.is_empty() { Some((fork, false)) } else { Some((session_id.clone(), true)) }
+            if settings.chat.keep_conversation && !fork.is_empty() {
+                Some((fork, false))
+            } else if crate::squad::is_claude_session(session_id) {
+                Some((session_id.clone(), true))
+            } else {
+                // a Codex session: Claude can't open its conversation, so start a
+                // fresh chat in that session's folder instead
+                None
+            }
         }
         None if settings.chat.keep_conversation => lock(&state.chat_sessions).get(&dir).cloned().map(|id| (id, false)),
         None => None,

@@ -1,5 +1,7 @@
-//! Your recent projects: the git repositories your Claude Code sessions ran in.
-//! Used by the daily briefing and the GitHub CI check. Saved in projects.json.
+//! Your recent projects: the git repositories your Claude Code and Codex sessions
+//! ran in, plus the last folder any session worked in. Used by the chat (so you
+//! don't have to pick a folder), the daily briefing and the GitHub CI check.
+//! Saved in projects.json.
 
 use crate::settings;
 use crate::state::{AppState, lock};
@@ -24,6 +26,8 @@ pub struct KnownProject {
 #[serde(default)]
 pub struct Projects {
     pub list: Vec<KnownProject>,
+    /// The folder your most recent Claude Code / Codex session worked in.
+    pub last_dir: String,
     /// Folder → repository root (None = not a git repo). Memory only.
     #[serde(skip)]
     roots: HashMap<String, Option<String>>,
@@ -43,6 +47,14 @@ impl Projects {
     /// Most recently used first.
     pub fn recent(&self, max: usize) -> Vec<String> {
         self.list.iter().take(max).map(|p| p.root.clone()).collect()
+    }
+
+    /// The best folder to work in when no session is running: the last folder a
+    /// session used, else the most recent project. Only folders that still exist.
+    pub fn remembered_dir(&self, exists: impl Fn(&str) -> bool) -> Option<String> {
+        std::iter::once(self.last_dir.clone())
+            .chain(self.list.iter().map(|p| p.root.clone()))
+            .find(|d| !d.is_empty() && exists(d))
     }
 }
 
@@ -68,6 +80,8 @@ pub fn note_cwd(app: &AppHandle, cwd: &str) {
         return;
     }
     let state = app.state::<AppState>();
+    // remembered in memory now, written to projects.json at the end of each turn
+    lock(&state.projects).last_dir = cwd.to_string();
     let known = lock(&state.projects).roots.get(cwd).cloned();
     match known {
         Some(Some(root)) => {
@@ -130,6 +144,17 @@ mod tests {
         assert_eq!(github_slug("ssh://git@github.com/me/app").as_deref(), Some("me/app"));
         assert_eq!(github_slug("https://gitlab.com/me/app.git"), None);
         assert_eq!(github_slug("https://github.com/me"), None);
+    }
+
+    #[test]
+    fn remembered_folder_prefers_the_last_session_and_skips_missing_ones() {
+        let mut p = Projects::default();
+        p.touch(r"C:\code\repo");
+        p.last_dir = r"C:\code\notes".into();
+        assert_eq!(p.remembered_dir(|_| true).as_deref(), Some(r"C:\code\notes"));
+        assert_eq!(p.remembered_dir(|d| d != r"C:\code\notes").as_deref(), Some(r"C:\code\repo"));
+        assert_eq!(p.remembered_dir(|_| false), None);
+        assert_eq!(Projects::default().remembered_dir(|_| true), None);
     }
 
     #[test]
