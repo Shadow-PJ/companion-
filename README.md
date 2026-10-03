@@ -8,9 +8,9 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 A small glowing jellyfish that lives at the top edge of your screen and keeps you
-company while [Claude Code](https://claude.com/claude-code) works. It shows what Claude
-is doing, lets you answer Claude's permission questions with one click, chats with
-Claude for you, and levels up as you code.
+company while [Claude Code](https://claude.com/claude-code) and Codex work. It shows what
+your agents are doing, lets you answer Claude's permission questions with one click, chats
+with Claude for you, and levels up as you code.
 
 Glowby hides at the top edge and slides out when you hover there. He's drawn entirely
 in code (no image files), uses about 60 MB of RAM and ~0% CPU while hidden, and never
@@ -41,7 +41,13 @@ Enter, and put a shortcut to `Glowby.exe` in the folder that opens.
 2. Under **Connect to Claude Code**, click **Install hooks…**. You see exactly what will
    change in `~\.claude\settings.json`. Click **Apply**. A backup is made first.
 3. Restart any Claude Code sessions that are already running.
-4. Hover the top edge of your screen (the thin line) to call Glowby out.
+4. Under **Connect to Codex**, click **Install hooks…** if you also use Codex. Review the
+   full change to `~\.codex\hooks.json`, then apply it. Restart Codex, enter `/hooks`, and
+   trust Glowby's hook entries.
+5. Hover the top edge of your screen (the thin line) to call Glowby out.
+
+Codex hooks only report status in the background. They can never approve, deny, delay, or
+block a Codex action. If Glowby is closed, Codex keeps working normally.
 
 ## What Glowby does
 

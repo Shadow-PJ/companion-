@@ -374,6 +374,21 @@ pub fn hooks_apply(app: AppHandle, install: bool, token: String) -> Result<Strin
 }
 
 #[tauri::command]
+pub fn codex_hooks_status(app: AppHandle) -> HooksStatus {
+    crate::codex_hooks_installer::status(&app)
+}
+
+#[tauri::command]
+pub fn codex_hooks_preview(app: AppHandle, install: bool) -> Result<Preview, String> {
+    crate::codex_hooks_installer::preview(&app, install)
+}
+
+#[tauri::command]
+pub fn codex_hooks_apply(app: AppHandle, install: bool, token: String) -> Result<String, String> {
+    crate::codex_hooks_installer::apply(&app, install, &token)
+}
+
+#[tauri::command]
 pub fn preview_mood(app: AppHandle, mood: String) {
     let Some(mood) = Mood::parse(&mood) else { return };
     lock(&app.state::<AppState>().ui).preview = Some((mood, Instant::now() + Duration::from_secs(5)));

@@ -6,6 +6,7 @@ mod applog;
 mod briefing;
 mod characters;
 mod chat;
+mod codex_hooks_installer;
 mod commands;
 mod dropzone;
 mod error_watch;
@@ -51,7 +52,8 @@ fn main() {
             // Keep the installed hook program up to date if hooks are installed.
             // (Install it BEFORE checking the status: a fresh copy of glowby.exe,
             // e.g. on your Desktop, puts its built-in hook program in place first.)
-            if hooks_installer::status(&handle).state != "notInstalled"
+            if (hooks_installer::status(&handle).state != "notInstalled"
+                || codex_hooks_installer::status(&handle).state != "notInstalled")
                 && let Err(e) = hooks_installer::ensure_hook_binary(&handle)
             {
                 applog::line(format!("hook program: {e}"));
@@ -157,6 +159,9 @@ fn main() {
             commands::hooks_status,
             commands::hooks_preview,
             commands::hooks_apply,
+            commands::codex_hooks_status,
+            commands::codex_hooks_preview,
+            commands::codex_hooks_apply,
             commands::preview_mood,
             commands::show_pet,
             commands::app_info,

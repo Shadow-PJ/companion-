@@ -69,7 +69,12 @@ function numberInput(label: string, hint: string, min: number, max: number, get:
 
 // ---------- sections ----------
 
-function hooksSection() {
+function hooksSection(
+  provider: string,
+  description: string,
+  commands: { status: string; preview: string; apply: string },
+  restartNote: string,
+) {
   const status = el("div", { class: "status-line" });
   const actions = el("div", { class: "actions" });
   const review = el("div", { class: "review", hidden: true });
@@ -82,7 +87,7 @@ function hooksSection() {
   };
 
   async function refresh() {
-    const st = await invoke<HooksStatus>("hooks_status");
+    const st = await invoke<HooksStatus>(commands.status);
     const labels = {
       installed: ["Connected", "ok"],
       outdated: ["Needs update", "warn"],
@@ -106,7 +111,7 @@ function hooksSection() {
     message.hidden = true;
     let p: HooksPreview;
     try {
-      p = await invoke<HooksPreview>("hooks_preview", { install });
+      p = await invoke<HooksPreview>(commands.preview, { install });
     } catch (e) {
       say(String(e), "error");
       return;
@@ -140,10 +145,10 @@ function hooksSection() {
 
   async function apply(p: HooksPreview) {
     try {
-      const backup = await invoke<string>("hooks_apply", { install: p.install, token: p.token });
+      const backup = await invoke<string>(commands.apply, { install: p.install, token: p.token });
       review.hidden = true;
       say(
-        `${p.install ? "Hooks installed." : "Hooks removed."} ${backup ? `Backup saved: ${backup}.` : ""} Restart running Claude Code sessions to pick this up.`,
+        `${p.install ? "Hooks installed." : "Hooks removed."} ${backup ? `Backup saved: ${backup}.` : ""} ${restartNote}`,
         "ok",
       );
     } catch (e) {
@@ -154,8 +159,8 @@ function hooksSection() {
 
   void refresh();
   return section(
-    "Connect to Claude Code",
-    "Glowby listens through hooks in your Claude Code settings. Hooks fail open: if Glowby is closed or crashes, Claude Code keeps working normally.",
+    provider,
+    description,
     status,
     actions,
     review,
@@ -797,7 +802,18 @@ async function main() {
   settings = loaded;
   characters = chars;
   app.replaceChildren(
-    hooksSection(),
+    hooksSection(
+      "Connect to Claude Code",
+      "Glowby listens through hooks in your Claude Code settings. Hooks fail open: if Glowby is closed or crashes, Claude Code keeps working normally.",
+      { status: "hooks_status", preview: "hooks_preview", apply: "hooks_apply" },
+      "Restart running Claude Code sessions to pick this up.",
+    ),
+    hooksSection(
+      "Connect to Codex",
+      "Glowby listens to Codex through background-only hooks. They report activity but can never delay, approve, deny, or block a Codex action.",
+      { status: "codex_hooks_status", preview: "codex_hooks_preview", apply: "codex_hooks_apply" },
+      "Restart running Codex sessions, then use /hooks to review and trust Glowby's hooks.",
+    ),
     await progressSection(),
     charactersSection(),
     squadSection(),
