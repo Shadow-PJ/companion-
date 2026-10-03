@@ -9,12 +9,15 @@
 
 A small glowing jellyfish that lives at the top edge of your screen and keeps you
 company while [Claude Code](https://claude.com/claude-code) and Codex work. It shows what
-your agents are doing, lets you answer Claude's permission questions with one click, chats
-with Claude for you, and levels up as you code.
+your agents are doing, lets you answer their permission questions with one click, warns you
+before you run out of AI usage, finds what wastes your tokens, and levels up as you code.
 
 Glowby hides at the top edge and slides out when you hover there. He's drawn entirely
 in code (no image files), uses about 60 MB of RAM and ~0% CPU while hidden, and never
 sends your data anywhere.
+
+> **Early version (v0.4).** Glowby is new and improving every week, so expect rough edges.
+> Ideas and bug reports are very welcome: [open an issue](https://github.com/Shadow-PJ/glowby/issues).
 
 ## Download
 
@@ -170,7 +173,7 @@ npm run release        # builds target\release\glowby.exe (the hook program is b
 * `.\scripts\measure.ps1 -Seconds 60`: measure RAM and CPU.
 
 **Publishing a new version:** bump the version in `Cargo.toml`, `package.json` and
-`src-tauri/tauri.conf.json`, then push a tag (`git tag v0.2.0` → `git push origin v0.2.0`).
+`src-tauri/tauri.conf.json`, then push a tag (`git tag v0.5.0` → `git push origin v0.5.0`).
 GitHub Actions builds `Glowby.exe` and publishes the release.
 
 ```
