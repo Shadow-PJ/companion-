@@ -2,8 +2,8 @@
 
 **Made by [Shadow-PJ](https://github.com/Shadow-PJ).**
 
-[![Latest release](https://img.shields.io/github/v/release/Shadow-PJ/companion-?label=download)](https://github.com/Shadow-PJ/companion-/releases/latest)
-[![CI](https://github.com/Shadow-PJ/companion-/actions/workflows/ci.yml/badge.svg)](https://github.com/Shadow-PJ/companion-/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/Shadow-PJ/glowby?label=download)](https://github.com/Shadow-PJ/glowby/releases/latest)
+[![CI](https://github.com/Shadow-PJ/glowby/actions/workflows/ci.yml/badge.svg)](https://github.com/Shadow-PJ/glowby/actions/workflows/ci.yml)
 ![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
@@ -18,8 +18,8 @@ sends your data anywhere.
 
 ## Download
 
-1. Download **[Glowby.exe](https://github.com/Shadow-PJ/companion-/releases/latest/download/Glowby.exe)**
-   from the [latest release](https://github.com/Shadow-PJ/companion-/releases/latest).
+1. Download **[Glowby.exe](https://github.com/Shadow-PJ/glowby/releases/latest/download/Glowby.exe)**
+   from the [latest release](https://github.com/Shadow-PJ/glowby/releases/latest).
    It's one file; there's nothing to install.
 2. Put it anywhere you like (your Desktop, `C:\Tools` …) and double-click it.
 3. If Windows says **"Windows protected your PC"**, click **More info → Run anyway**.
@@ -154,7 +154,7 @@ while a fullscreen game runs.
 Needs Rust (MSVC toolchain), Node 22+, the Visual Studio C++ build tools and WebView2.
 
 ```powershell
-git clone https://github.com/Shadow-PJ/companion-.git glowby
+git clone https://github.com/Shadow-PJ/glowby.git glowby
 cd glowby
 npm install
 npm run release        # builds target\release\glowby.exe (the hook program is built in)

@@ -5,7 +5,7 @@
   "description": "Glowby, a desktop companion pet for Claude Code",
   "author": "Shadow-PJ",
   "license": "MIT",
-  "repository": "github:Shadow-PJ/companion-",
+  "repository": "github:Shadow-PJ/glowby",
   "type": "module",
   "scripts": {
     "icons": "node scripts/gen-icons.mjs",
