@@ -30,6 +30,13 @@ function section(title: string, intro?: string | null, ...body: (Node | null)[])
   return el("section", { class: "card" }, el("h2", { text: title }), intro ? el("p", { class: "intro", text: intro }) : null, ...body);
 }
 
+/** Every connection card's status refresher: after any change, all of them
+ *  re-check, so no card keeps showing an old "Needs update". */
+const connectionRefreshers: (() => Promise<void>)[] = [];
+async function refreshConnections() {
+  await Promise.all(connectionRefreshers.map((refresh) => refresh()));
+}
+
 function quickConnectSection() {
   const status = el("div", { class: "status-line" });
   const actions = el("div", { class: "actions" });
@@ -112,14 +119,15 @@ function quickConnectSection() {
       review.hidden = true;
       pending = null;
       say(`Connected. ${backups.length ? `Backups saved: ${backups.join(" and ")}. ` : ""}Restart your Claude Code and Codex sessions. In Codex, use /hooks to review and trust Glowby's hooks.`, "ok");
-      await refresh();
+      await refreshConnections();
     } catch (error) {
       say(`Connection setup stopped: ${String(error)}. Any change already applied has its own backup. Review the connection status, then try again.`, "error");
-      await refresh();
+      await refreshConnections();
     }
   }
 
   actions.append(button("Connect Claude Code + Codex…", "primary", () => void connect()));
+  connectionRefreshers.push(refresh);
   void refresh();
   return section("Connect Claude Code + Codex", "One setup for both tools. Review the exact changes before Glowby updates either settings file.", status, actions, review, message);
 }
@@ -213,6 +221,7 @@ function hooksSection(
     if (!p.changed) {
       review.hidden = true;
       say(install ? "Already up to date. Nothing to change." : "No Glowby hooks found. Nothing to remove.", "info");
+      void refreshConnections(); // the status shown above may be older than the file
       return;
     }
     const lines = el("pre", { class: "diff" });
@@ -248,9 +257,10 @@ function hooksSection(
     } catch (e) {
       say(String(e), "error");
     }
-    await refresh();
+    await refreshConnections();
   }
 
+  connectionRefreshers.push(refresh);
   void refresh();
   return section(
     provider,
