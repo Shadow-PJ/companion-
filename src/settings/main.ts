@@ -30,6 +30,100 @@ function section(title: string, intro?: string | null, ...body: (Node | null)[])
   return el("section", { class: "card" }, el("h2", { text: title }), intro ? el("p", { class: "intro", text: intro }) : null, ...body);
 }
 
+function quickConnectSection() {
+  const status = el("div", { class: "status-line" });
+  const actions = el("div", { class: "actions" });
+  const review = el("div", { class: "review", hidden: true });
+  const message = el("div", { class: "message", hidden: true });
+  let pending: { claude: HooksPreview; codex: HooksPreview } | null = null;
+
+  const say = (text: string, kind: "ok" | "error" | "info") => {
+    message.hidden = false;
+    message.className = `message ${kind}`;
+    message.textContent = text;
+  };
+
+  async function refresh() {
+    try {
+      const [claude, codex] = await Promise.all([
+        invoke<HooksStatus>("hooks_status"),
+        invoke<HooksStatus>("codex_hooks_status"),
+      ]);
+      const label = (name: string, value: HooksStatus) => `${name}: ${value.state === "installed" ? "connected" : value.state === "outdated" ? "needs update" : value.state === "error" ? "check settings" : "not connected"}`;
+      status.replaceChildren(el("span", { class: "muted", text: `${label("Claude Code", claude)}  ·  ${label("Codex", codex)}` }));
+    } catch (error) {
+      status.replaceChildren(el("span", { class: "muted", text: `Couldn't check connections: ${String(error)}` }));
+    }
+  }
+
+  async function connect() {
+    message.hidden = true;
+    review.hidden = true;
+    try {
+      const [claude, codex] = await Promise.all([
+        invoke<HooksPreview>("hooks_preview", { install: true }),
+        invoke<HooksPreview>("codex_hooks_preview", { install: true }),
+      ]);
+      pending = { claude, codex };
+      const content: Node[] = [
+        el("h3", { text: "Review connections for Claude Code and Codex" }),
+        el("p", { class: "hint", text: "Check both changes below. Glowby backs up each settings file before applying it. Claude's hooks keep their existing permission flow; Codex hooks only report activity in the background." }),
+      ];
+      for (const [name, preview] of [["Claude Code", claude], ["Codex", codex]] as const) {
+        content.push(el("h3", { text: name }));
+        content.push(el("p", { class: "hint", text: preview.settingsPath }));
+        if (!preview.changed) {
+          content.push(el("p", { class: "hint", text: "Already connected; no changes needed." }));
+          continue;
+        }
+        if (preview.reformatted) content.push(el("p", { class: "hint", text: "This file's spacing will be normalised; its settings stay the same." }));
+        const lines = el("pre", { class: "diff" });
+        for (const line of preview.diff) {
+          const cls = line.tag === "+" ? "add" : line.tag === "-" ? "del" : line.tag === "gap" ? "gap" : "ctx";
+          lines.append(el("div", { class: cls, text: line.tag === "gap" ? "…" : `${line.tag} ${line.text}` }));
+        }
+        content.push(lines);
+      }
+      if (!claude.changed && !codex.changed) {
+        pending = null;
+        say("Claude Code and Codex are already connected.", "info");
+        return;
+      }
+      content.push(el("div", { class: "actions" },
+        button("Apply both connections", "primary", () => void apply()),
+        button("Cancel", "", () => { review.hidden = true; pending = null; }),
+      ));
+      review.replaceChildren(...content);
+      review.hidden = false;
+    } catch (error) {
+      say(String(error), "error");
+    }
+  }
+
+  async function apply() {
+    if (!pending) return;
+    const { claude, codex } = pending;
+    try {
+      let claudeBackup = "";
+      let codexBackup = "";
+      if (claude.changed) claudeBackup = await invoke<string>("hooks_apply", { install: true, token: claude.token });
+      if (codex.changed) codexBackup = await invoke<string>("codex_hooks_apply", { install: true, token: codex.token });
+      const backups = [claudeBackup, codexBackup].filter(Boolean);
+      review.hidden = true;
+      pending = null;
+      say(`Connected. ${backups.length ? `Backups saved: ${backups.join(" and ")}. ` : ""}Restart your Claude Code and Codex sessions. In Codex, use /hooks to review and trust Glowby's hooks.`, "ok");
+      await refresh();
+    } catch (error) {
+      say(`Connection setup stopped: ${String(error)}. Any change already applied has its own backup. Review the connection status, then try again.`, "error");
+      await refresh();
+    }
+  }
+
+  actions.append(button("Connect Claude Code + Codex…", "primary", () => void connect()));
+  void refresh();
+  return section("Connect Claude Code + Codex", "One setup for both tools. Review the exact changes before Glowby updates either settings file.", status, actions, review, message);
+}
+
 function row(label: string, hint: string | null, control: Node) {
   return el("div", { class: "row" }, el("div", { class: "label" }, el("div", { text: label }), hint ? el("div", { class: "hint", text: hint }) : null), control);
 }
@@ -802,6 +896,7 @@ async function main() {
   settings = loaded;
   characters = chars;
   app.replaceChildren(
+    quickConnectSection(),
     hooksSection(
       "Connect to Claude Code",
       "Glowby listens through hooks in your Claude Code settings. Hooks fail open: if Glowby is closed or crashes, Claude Code keeps working normally.",

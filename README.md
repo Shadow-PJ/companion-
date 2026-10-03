@@ -37,14 +37,11 @@ Enter, and put a shortcut to `Glowby.exe` in the folder that opens.
 
 ## First run
 
-1. Glowby opens **Settings** because it isn't connected to Claude Code yet.
-2. Under **Connect to Claude Code**, click **Install hooks…**. You see exactly what will
-   change in `~\.claude\settings.json`. Click **Apply**. A backup is made first.
-3. Restart any Claude Code sessions that are already running.
-4. Under **Connect to Codex**, click **Install hooks…** if you also use Codex. Review the
-   full change to `~\.codex\hooks.json`, then apply it. Restart Codex, enter `/hooks`, and
-   trust Glowby's hook entries.
-5. Hover the top edge of your screen (the thin line) to call Glowby out.
+1. Glowby opens **Settings**. Click **Connect Claude Code + Codex…** and review both
+   changes. Click **Apply both connections**; Glowby backs up each settings file first.
+2. Restart your Claude Code and Codex sessions. In Codex, enter `/hooks` and trust
+   Glowby's hook entries.
+3. Hover the top edge of your screen (the thin line) to call Glowby out.
 
 Codex hooks only report status in the background. They can never approve, deny, delay, or
 block a Codex action. If Glowby is closed, Codex keeps working normally.
