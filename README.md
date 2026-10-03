@@ -55,6 +55,12 @@ block a Codex action. If Glowby is closed, Codex keeps working normally.
   amber when it needs you.
 * **Permission questions:** when Claude asks to run something, answer **Allow / Deny** on
   Glowby. No answer in time? The question goes back to the terminal.
+* **Auto-allow:** right-click Glowby → **Auto-allow 15 min / 30 min / 1 hour**, or turn on
+  **Full auto** in Settings, and Glowby answers Claude Code's questions with Allow for
+  you. Risky things still ask: deleting files, `git push`, `reset --hard`, installing
+  software, downloads, and file changes outside the project (your **never-auto list**
+  in Settings). A quiet log in Settings lists everything that was auto-allowed.
+  Codex is never auto-allowed: its hooks only watch.
 * **Moods:** working, happy when a task is done, alert when Claude needs you, sick while
   your tests or build fail, sleepy when it's quiet.
 

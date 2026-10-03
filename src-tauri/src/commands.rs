@@ -104,6 +104,33 @@ pub fn squad_set_look(app: AppHandle, id: String, character: String, species: Op
     crate::squad::set_look(&app, &id, &character, species.as_deref().unwrap_or(""))
 }
 
+/// Timed auto-allow from the right-click menu or Settings (15 / 30 / 60 minutes).
+#[tauri::command]
+pub fn auto_allow_start(app: AppHandle, minutes: u32) {
+    crate::autoallow::start(&app, minutes);
+}
+
+#[tauri::command]
+pub fn auto_allow_stop(app: AppHandle) {
+    crate::autoallow::stop(&app);
+}
+
+/// The quiet log: what Glowby allowed for you, newest first.
+#[tauri::command]
+pub fn auto_allow_log(app: AppHandle) -> Vec<crate::autoallow::Entry> {
+    crate::autoallow::log_entries(&app)
+}
+
+#[tauri::command]
+pub fn auto_allow_clear_log(app: AppHandle) {
+    crate::autoallow::clear_log(&app);
+}
+
+#[tauri::command]
+pub fn auto_allow_defaults() -> Vec<String> {
+    crate::autoallow::default_never_list()
+}
+
 /// You stroked Glowby with the mouse (one call per petting session).
 #[tauri::command]
 pub fn pet_petted(app: AppHandle) {

@@ -163,7 +163,7 @@ export class Bubble {
   }
 
   private renderMenu(v: PetView) {
-    const key = JSON.stringify([v.quickActions, v.emotes]);
+    const key = JSON.stringify([v.quickActions, v.emotes, v.autoAllow]);
     if (key === this.menuKey) return;
     this.menuKey = key;
     const item = (label: string, onClick: () => void, extra = "") =>
@@ -183,10 +183,38 @@ export class Bubble {
         emotes.length ? el("div", { class: "eyebrow", text: "Emotes" }) : null,
         emotes.length ? el("div", { class: "emotes" }, ...emotes) : null,
         el("hr"),
+        el("div", { class: "eyebrow", text: "Auto-allow Claude's questions" }),
+        this.autoAllowControls(v),
+        el("hr"),
         item("Chat with Claude…", () => this.openChat(), "subtle"),
         item("Today's briefing and quests", () => void invoke("briefing_show"), "subtle"),
         item("Settings…", () => void invoke("open_settings"), "subtle"),
       ),
+    );
+  }
+
+  /** Chips to start timed auto-allow, or its state and a Stop button. */
+  private autoAllowControls(v: PetView): HTMLElement {
+    const a = v.autoAllow;
+    const chip = (label: string, onClick: () => void, extra = "") =>
+      button(label, `chip ${extra}`.trim(), () => {
+        this.menuOpen = false;
+        onClick();
+        this.rerender();
+      });
+    if (a?.full) return el("div", { class: "muted small", text: "Full auto is on (turn it off in Settings)." });
+    if (a) {
+      return el(
+        "div",
+        { class: "emotes" },
+        el("span", { class: "muted small", text: `On · ${a.minutesLeft} min left · ` }),
+        chip("Stop", () => void invoke("auto_allow_stop"), "primary"),
+      );
+    }
+    return el(
+      "div",
+      { class: "emotes" },
+      ...([15, 30, 60] as const).map((m) => chip(m === 60 ? "1 hour" : `${m} min`, () => void invoke("auto_allow_start", { minutes: m }))),
     );
   }
 
@@ -629,6 +657,20 @@ export class Bubble {
         el("div", { class: "line", text: "All quiet." }),
         hints.length ? el("div", { class: "muted small", text: `${hints.join(" · ")} · drop a file on me` }) : null,
       ];
+    }
+    // Auto-allow, quietly: one line with a Stop button (timed) under the status.
+    const a = v.autoAllow;
+    if (a && !v.toast) {
+      key += `|auto:${a.full}:${a.minutesLeft}:${a.allowed}`;
+      const text = `⚡ ${a.full ? "Full auto" : `Auto-allow · ${a.minutesLeft} min left`} · ${a.allowed} allowed`;
+      content.push(
+        el(
+          "div",
+          { class: "auto-line" },
+          el("span", { text }),
+          a.full ? null : button("Stop", "ghost tiny", () => void invoke("auto_allow_stop"), "Turn auto-allow off"),
+        ),
+      );
     }
     // Level, XP bar, streak and quests under the status (not on toasts).
     const p = v.toast ? null : v.progress;

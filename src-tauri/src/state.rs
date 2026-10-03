@@ -32,6 +32,7 @@ pub struct Paths {
     pub characters_file: PathBuf,
     pub characters_dir: PathBuf,
     pub squad_file: PathBuf,
+    pub auto_log_file: PathBuf,
 }
 
 pub struct AppState {
@@ -52,6 +53,7 @@ pub struct AppState {
     pub github: Mutex<crate::github::Github>,
     pub characters: Mutex<crate::characters::Characters>,
     pub squad: Mutex<crate::squad::Squad>,
+    pub auto_log: Mutex<crate::autoallow::AutoLog>,
     timer: watch::Sender<Option<Instant>>,
     timer_rx: Mutex<Option<watch::Receiver<Option<Instant>>>>,
 }
@@ -114,6 +116,10 @@ pub struct Ui {
     /// Keep Glowby out until then (a new offer, briefing or question), even if
     /// the mouse isn't on him. Afterwards he hides normally; hover to see it again.
     pub hold_until: Option<Instant>,
+    /// Timed auto-allow is on until then (memory only: a restart turns it off).
+    pub auto_until: Option<Instant>,
+    /// Questions auto-allowed since auto-allow was turned on.
+    pub auto_count: u32,
     last_hot_color: Option<Option<(u32, u8)>>,
     last_tooltip: String,
 }
@@ -143,6 +149,8 @@ pub struct PetView {
     pub characters: Vec<ActionView>,
     /// Anime pets you've unlocked (id + name).
     pub pets: Vec<ActionView>,
+    /// Auto-allow is on (timed or full); None = off.
+    pub auto_allow: Option<crate::autoallow::AutoAllowView>,
     pub follow_mouse: bool,
     pub hooks_installed: bool,
     pub game_active: bool,
@@ -174,8 +182,10 @@ impl AppState {
             characters_file: config_dir.join("characters.json"),
             characters_dir: config_dir.join("characters"),
             squad_file: config_dir.join("squad.json"),
+            auto_log_file: config_dir.join("auto-allowed.json"),
             config_dir,
         };
+        let auto_log: crate::autoallow::AutoLog = settings::load_json(&paths.auto_log_file);
         let characters: crate::characters::Characters = settings::load_json(&paths.characters_file);
         let squad: crate::squad::Squad = settings::load_json(&paths.squad_file);
         let progress: Progress = settings::load_json(&paths.progress_file);
@@ -202,6 +212,7 @@ impl AppState {
             github: Mutex::new(crate::github::Github::default()),
             characters: Mutex::new(characters),
             squad: Mutex::new(squad),
+            auto_log: Mutex::new(auto_log),
             timer,
             timer_rx: Mutex::new(Some(timer_rx)),
             paths,
@@ -296,11 +307,25 @@ fn view_and_deadline(app: &AppHandle) -> (PetView, Option<Instant>) {
     if ui.offer.as_ref().is_some_and(|(_, until)| *until <= now) {
         ui.offer = None;
     }
+    if ui.auto_until.is_some_and(|until| until <= now) {
+        ui.auto_until = None;
+        ui.toast = Some((
+            Toast { kind: "info", text: "Auto-allow ended. Claude will ask you again.".into(), project: String::new() },
+            now + Duration::from_secs(6),
+        ));
+    }
+    let auto_allow = crate::autoallow::view(settings.auto_allow.full, ui.auto_until, ui.auto_count, now);
     let mut deadlines: Vec<Instant> = tracker_next.into_iter().collect();
     deadlines.extend(ui.toast.as_ref().map(|(_, until)| *until));
     deadlines.extend(ui.preview.map(|(_, until)| until));
     deadlines.extend(ui.offer.as_ref().map(|(_, until)| *until));
     deadlines.extend(break_due);
+    // the countdown shows whole minutes: update each minute, and when it ends
+    if let Some(until) = ui.auto_until {
+        let left = until.saturating_duration_since(now).as_secs();
+        deadlines.push(now + Duration::from_secs(left % 60).max(Duration::from_millis(500)).min(until.saturating_duration_since(now)));
+        deadlines.push(until);
+    }
     deadlines.extend(quiz_deadline);
     if settings.progression.neglect {
         deadlines.extend(energy_drop);
@@ -357,6 +382,7 @@ fn view_and_deadline(app: &AppHandle) -> (PetView, Option<Instant>) {
         squad,
         characters,
         pets,
+        auto_allow,
         follow_mouse: settings.pet.follow_mouse,
         hooks_installed: ui.hooks_installed,
         game_active: ui.game_active,

@@ -188,6 +188,8 @@ export interface PetView {
   characters: ActionView[];
   /** Anime pets you've unlocked (id + name). */
   pets: ActionView[];
+  /** Auto-allow is on (timed or full); null = off. */
+  autoAllow: { full: boolean; minutesLeft: number | null; allowed: number } | null;
   followMouse: boolean;
   hooksInstalled: boolean;
   gameActive: boolean;
@@ -229,6 +231,14 @@ export interface Settings {
   quests: { enabled: boolean; difficulty: "easy" | "normal" | "hard"; perDay: number; kinds: string[] };
   github: { enabled: boolean; everyMins: number };
   squad: { enabled: boolean; maxShown: number };
+  autoAllow: { full: boolean; never: string[]; outsideProject: boolean };
+}
+
+export interface AutoAllowEntry {
+  at: string;
+  project: string;
+  what: string;
+  mode: "timed" | "full";
 }
 
 export interface QuickAction {

@@ -1,7 +1,7 @@
 {
   "name": "glowby",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Glowby, a desktop companion pet for Claude Code",
   "author": "Shadow-PJ",
   "license": "MIT",

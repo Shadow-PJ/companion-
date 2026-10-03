@@ -30,6 +30,25 @@ pub struct Settings {
     pub quests: QuestSettings,
     pub github: GithubSettings,
     pub squad: SquadSettings,
+    pub auto_allow: AutoAllowSettings,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AutoAllowSettings {
+    /// Full auto: Glowby answers every Claude Code permission question with
+    /// "Allow" (except the never-auto list) until you turn it off. Off by default.
+    pub full: bool,
+    /// These still ask you, even with auto-allow on (one rule per line, whole words).
+    pub never: Vec<String>,
+    /// File changes outside the project folder still ask you.
+    pub outside_project: bool,
+}
+
+impl Default for AutoAllowSettings {
+    fn default() -> Self {
+        Self { full: false, never: crate::autoallow::default_never_list(), outside_project: true }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -298,6 +317,7 @@ impl Default for Settings {
             quests: QuestSettings::default(),
             github: GithubSettings::default(),
             squad: SquadSettings::default(),
+            auto_allow: AutoAllowSettings::default(),
         }
     }
 }
@@ -346,6 +366,7 @@ impl Settings {
         self.quests.per_day = self.quests.per_day.clamp(1, 5);
         self.github.every_mins = self.github.every_mins.clamp(5, 180);
         self.squad.max_shown = self.squad.max_shown.clamp(1, 6);
+        self.auto_allow.never = self.auto_allow.never.iter().map(|r| r.trim().chars().take(120).collect::<String>()).filter(|r| !r.is_empty()).take(200).collect();
         let mut seen = std::collections::HashSet::new();
         self.quick_actions.actions.truncate(20);
         for (i, action) in self.quick_actions.actions.iter_mut().enumerate() {

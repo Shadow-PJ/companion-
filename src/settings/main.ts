@@ -6,7 +6,7 @@ import { setCharacterImage } from "../pet/character/images";
 import { DEFAULT_APPEARANCE, PetRenderer } from "../pet/renderer";
 import { playSound } from "../pet/sound";
 import { button, compact, el } from "../shared/dom";
-import type { AppInfo, CharacterInfo, ChatMode, CosmeticView, GithubStatus, HooksPreview, HooksStatus, Look, MonitorInfo, ProgressInfo, Settings } from "../shared/types";
+import type { AppInfo, AutoAllowEntry, CharacterInfo, ChatMode, CosmeticView, GithubStatus, HooksPreview, HooksStatus, Look, MonitorInfo, ProgressInfo, Settings } from "../shared/types";
 import { crop, nameFromFile } from "./cropper";
 
 const app = document.getElementById("app")!;
@@ -289,6 +289,67 @@ function permissionsSection() {
     "When Claude Code asks for permission, Glowby shows Allow / Deny. If you don't answer in time, the question goes back to the terminal.",
     toggle("Answer permission requests on Glowby", null, () => settings.permissions.enabled, (v) => (settings.permissions.enabled = v)),
     numberInput("Hand back to the terminal after", "5 to 540 seconds.", 5, 540, () => settings.permissions.timeoutSecs, (v) => (settings.permissions.timeoutSecs = v), "seconds"),
+  );
+}
+
+function autoAllowSection() {
+  const a = settings.autoAllow;
+  const timed = el("div", { class: "actions" });
+  const logBox = el("div", { class: "auto-log" });
+
+  async function renderLog() {
+    const entries = await invoke<AutoAllowEntry[]>("auto_allow_log");
+    logBox.replaceChildren(
+      ...compact(
+      el("h3", { text: `Auto-allowed for you (${entries.length})` }),
+      entries.length
+        ? el(
+            "ul",
+            { class: "quest-list" },
+            ...entries.slice(0, 40).map((e) =>
+              el("li", { class: "hint", text: `${new Date(e.at).toLocaleString()} · ${e.project || "?"} · ${e.what}${e.mode === "full" ? " (full auto)" : ""}` }),
+            ),
+          )
+        : el("p", { class: "hint", text: "Nothing yet." }),
+      entries.length ? el("div", { class: "actions" }, button("Clear the log", "ghost", async () => { await invoke("auto_allow_clear_log"); void renderLog(); })) : null,
+      ),
+    );
+  }
+
+  timed.append(
+    ...[15, 30, 60].map((m) => button(m === 60 ? "Auto-allow for 1 hour" : `Auto-allow for ${m} min`, "", () => void invoke("auto_allow_start", { minutes: m }))),
+    button("Stop", "ghost", () => void invoke("auto_allow_stop")),
+  );
+
+  const never = el("textarea", { class: "text prompt", rows: 8, spellcheck: "false" });
+  never.value = a.never.join("\n");
+  never.addEventListener("input", () => {
+    a.never = never.value.split("\n").map((l) => l.trim()).filter(Boolean);
+    save();
+  });
+  const reset = button("Reset to the safe defaults", "ghost", async () => {
+    a.never = await invoke<string[]>("auto_allow_defaults");
+    never.value = a.never.join("\n");
+    save();
+  });
+
+  void renderLog();
+  return section(
+    "Auto-allow (Claude Code)",
+    "Let Glowby answer Claude Code's permission questions with Allow for you: for a while (also from the right-click menu), or always with full auto. Anything on the never-auto list still asks you. Codex is never affected: its hooks only watch.",
+    row("Timed auto-allow", "Turns itself off when the time is up, and when Glowby restarts.", timed),
+    toggle(
+      "Full auto",
+      "Off by default. Allows every question (except the never-auto list) until you turn this off. Only use it for projects you trust.",
+      () => a.full,
+      (v) => (a.full = v),
+    ),
+    toggle("Always ask for file changes outside the project folder", null, () => a.outsideProject, (v) => (a.outsideProject = v)),
+    el("h3", { text: "Never auto-allow (always ask)" }),
+    el("p", { class: "hint", text: "One rule per line, matched as whole words in the command or tool, e.g. \"git push\" or \"rm\"." }),
+    never,
+    el("div", { class: "actions" }, reset),
+    logBox,
   );
 }
 
@@ -914,6 +975,7 @@ async function main() {
     squadSection(),
     petSection(monitors),
     permissionsSection(),
+    autoAllowSection(),
     chatSection(info),
     quickActionsSection(),
     helpersSection(),

@@ -3,6 +3,7 @@
 
 mod actions;
 mod applog;
+mod autoallow;
 mod briefing;
 mod characters;
 mod chat;
@@ -143,6 +144,11 @@ fn main() {
             commands::squad_chat_open,
             commands::squad_set_look,
             commands::pet_petted,
+            commands::auto_allow_start,
+            commands::auto_allow_stop,
+            commands::auto_allow_log,
+            commands::auto_allow_clear_log,
+            commands::auto_allow_defaults,
             commands::characters_list,
             commands::character_read_source,
             commands::character_add,

@@ -493,3 +493,30 @@ within 1.4 s, each after at least 6 px of travel, count as petting. That ignores
 just passing by, tiny hand jitter, slow movement and dragging. It was checked with
 simulated mouse movements before it ever ran on screen. Rust gives at most one small XP
 reward every 5 minutes, so petting stays fun rather than an XP farm.
+
+## Version 0.3: auto-allow
+
+### 1. Saying "yes" for you, with a safety net
+
+Claude Code asks before risky steps, and Glowby's permission hook can answer `allow`.
+Auto-allow does that automatically, either for a while (a deadline kept in memory, so a
+restart always turns it off) or until you switch it off (full auto). Before allowing,
+every question goes through `decide()` in `autoallow.rs`:
+
+* **Never-auto list:** the command is split into lower-case *words* (`git push --force`
+  → `git`, `push`, `--force`), paths keep only their last part (`/bin/rm` → `rm`), and a
+  rule matches when its words appear one after another. That's why `npm run format` or a
+  folder named `rm-old` don't trigger the `rm` rule, while `cd x && rm -rf build` does,
+  and so does an `rm` hidden inside `bash -c "…"`.
+* **Project folder:** file edits must stay inside the session's folder. A similar name
+  (`C:\code\application` next to `C:\code\app`) or a `..\` escape still asks.
+* **When in doubt it asks.** A false alarm costs one click; a wrong "allow" could cost
+  your files.
+
+### 2. Tested end to end
+
+Unit tests cover the rules: everyday work is allowed; deleting, pushing, installing,
+downloading, hidden encoded commands and outside-the-project edits still ask. Then the
+real `glowby-hook.exe` sent a pretend "npm test" permission question to a running Glowby
+with timed auto-allow on. It answered `allow` in about 0.1 s, the counter and the quiet
+log showed it, and Stop turned it off.

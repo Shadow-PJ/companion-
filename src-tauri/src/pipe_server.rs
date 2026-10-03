@@ -234,11 +234,19 @@ enum Gate {
 fn begin_gate(app: &AppHandle, envelope: &HookEnvelope) -> Gate {
     let state = app.state::<AppState>();
     let settings = state.settings();
+    let tool = crate::sessions::str_field(&envelope.payload, "tool_name").unwrap_or("");
+    let is_chat = envelope.event == CHAT_GATE_EVENT;
+    // Auto-allow (timed or full), unless the never-auto list or the project
+    // folder rule says to ask. Glowby's own read-only quick actions still block edits.
+    let read_only_chat = is_chat && lock(&state.chat).read_only && EDIT_TOOLS.contains(&tool);
+    if !read_only_chat && crate::autoallow::try_allow(app, &envelope.payload) {
+        state::publish(app);
+        return Gate::Now(HookReply::Allow);
+    }
     if lock(&state.ui).game_active {
         return Gate::Now(HookReply::Pass);
     }
-    let tool = crate::sessions::str_field(&envelope.payload, "tool_name").unwrap_or("");
-    let kind = if envelope.event == CHAT_GATE_EVENT {
+    let kind = if is_chat {
         let read_only_run = lock(&state.chat).read_only;
         let command = envelope.payload.pointer("/tool_input/command").and_then(serde_json::Value::as_str).unwrap_or("");
         // Plain read-only commands like `git log` don't need your OK.
