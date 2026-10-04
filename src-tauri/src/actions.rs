@@ -19,7 +19,8 @@ pub struct LastError {
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Offer {
-    /// "clipboardError", "failingChecks", "break" or "ci"
+    /// "clipboardError", "failingChecks", "break", "ci", "limits", or one of the
+    /// usage alerts: "guard", "limitHit", "claudeBack", "cacheSoon", "bigChat"
     pub kind: &'static str,
     pub title: String,
     pub detail: String,
@@ -124,10 +125,19 @@ pub fn offer_choice(app: &AppHandle, choice: &str) {
         state::publish(app);
         return;
     }
+    if taken.as_ref().is_some_and(|o| matches!(o.kind, "guard" | "limitHit" | "claudeBack" | "cacheSoon" | "bigChat")) {
+        // "Copy fresh-start note": a note to paste into a new chat (built locally)
+        if choice == "copyNote" {
+            crate::guard::copy_note(app);
+        }
+        state::publish(app);
+        return;
+    }
     if taken.as_ref().is_some_and(|o| o.kind == "limits") {
-        // "Save a handoff note": a short note so you (or the other agent) can pick up later
-        if choice == "handoff" {
-            run_prompt(app, "Save a handoff note".into(), HANDOFF_TEMPLATE, false);
+        // "Copy handoff note": made on your PC from the chat log, so it costs no usage
+        // (when you're low on usage, asking Claude to write it would cost more)
+        if choice == "copyNote" {
+            crate::guard::copy_note(app);
         }
         state::publish(app);
         return;
@@ -174,8 +184,6 @@ pub fn offer_choice(app: &AppHandle, choice: &str) {
     state::publish(app);
 }
 
-/// Used when a usage limit gets tight.
-const HANDOFF_TEMPLATE: &str = "My AI usage limit is running low. Write (or update) a short HANDOFF.md in the project root so I or another coding agent can continue later: what we're working on, what's done, what's left, the exact next steps, and any commands to run. Keep it brief. Don't change any other files.";
 
 pub fn save_health(app: &AppHandle) {
     let state = app.state::<AppState>();

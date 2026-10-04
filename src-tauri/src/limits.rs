@@ -4,9 +4,11 @@
 //! Where the numbers come from (all on this PC, nothing is sent anywhere):
 //! * Claude: Claude Code hands its status line the exact percentages of your
 //!   5-hour and weekly limits (Pro/Max). Glowby's status line passes them on.
-//!   Without that (e.g. sessions that don't run a status line) Glowby estimates
-//!   from the token counts in your local Claude Code transcripts, and learns
-//!   your limit the first time you hit it.
+//!   The Claude app doesn't run a status line, so there Glowby shows the tokens
+//!   in your local Claude Code transcripts (no percentage: claude.ai chats use
+//!   the same limit and aren't in those logs). When Claude says you've hit a
+//!   limit, its message has the exact reset time: Glowby tells you at once and
+//!   again when it's back.
 //! * Codex: Codex saves its exact limit percentages and reset times in its
 //!   session logs (~/.codex/sessions); Glowby reads the newest numbers.
 //!
@@ -88,10 +90,10 @@ pub struct Limits {
     pub claude: Vec<WindowState>,
     pub codex: Vec<WindowState>,
     pub codex_plan: String,
-    /// Tokens in a 5-hour window when you last hit Claude's limit (learned).
-    pub claude_tokens_at_limit: Option<u64>,
     /// Warnings already shown ("agent:window:resets_at:level").
     pub warned: BTreeSet<String>,
+    /// Claude said its limit is used up until then (unix seconds; 0 = not out).
+    pub claude_out_until: i64,
     #[serde(skip)]
     last_codex_read: i64,
     #[serde(skip)]
@@ -158,16 +160,20 @@ fn home() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE").map(PathBuf::from)
 }
 
-/// Reads the last `TAIL_BYTES` of a file (whole lines only).
 fn tail(path: &Path) -> String {
+    tail_of(path, TAIL_BYTES)
+}
+
+/// Reads the last `max` bytes of a file (whole lines only).
+pub fn tail_of(path: &Path, max: u64) -> String {
     let Ok(mut f) = std::fs::File::open(path) else { return String::new() };
     let len = f.metadata().map(|m| m.len()).unwrap_or(0);
-    let start = len.saturating_sub(TAIL_BYTES);
+    let start = len.saturating_sub(max);
     if f.seek(SeekFrom::Start(start)).is_err() {
         return String::new();
     }
     let mut bytes = Vec::new();
-    let _ = f.take(TAIL_BYTES).read_to_end(&mut bytes);
+    let _ = f.take(max).read_to_end(&mut bytes);
     let text = String::from_utf8_lossy(&bytes).into_owned();
     if start > 0 { text.split_once('\n').map(|(_, rest)| rest.to_string()).unwrap_or_default() } else { text }
 }
@@ -178,6 +184,8 @@ fn claude_usage_points(now: i64) -> Vec<(i64, u64)> {
     let Some(root) = home().map(|h| h.join(".claude").join("projects")) else { return Vec::new() };
     let since = now - 2 * CLAUDE_BLOCK_SECS;
     let mut points = Vec::new();
+    // one reply is written as several lines with the same id: count it once
+    let mut seen = std::collections::HashSet::new();
     let Ok(projects) = std::fs::read_dir(root) else { return points };
     for dir in projects.flatten() {
         let Ok(files) = std::fs::read_dir(dir.path()) else { continue };
@@ -193,6 +201,11 @@ fn claude_usage_points(now: i64) -> Vec<(i64, u64)> {
             for line in tail(&path).lines().filter(|l| l.contains("\"usage\"") && l.contains("\"assistant\"")) {
                 let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
                 let Some(at) = v.get("timestamp").and_then(Value::as_str).and_then(|t| DateTime::parse_from_rfc3339(t).ok()) else { continue };
+                if let Some(id) = v.pointer("/message/id").and_then(Value::as_str)
+                    && !seen.insert(id.to_string())
+                {
+                    continue;
+                }
                 let u = v.pointer("/message/usage").cloned().unwrap_or(Value::Null);
                 let n = |k: &str| u.get(k).and_then(Value::as_u64).unwrap_or(0);
                 // cache reads are cheap for limits, so they're left out
@@ -211,8 +224,6 @@ fn claude_usage_points(now: i64) -> Vec<(i64, u64)> {
 pub struct Block {
     pub start: i64,
     pub tokens: u64,
-    /// (time, running total) per message.
-    pub series: Vec<(i64, u64)>,
 }
 
 /// The current 5-hour block: it starts at the first message after the previous
@@ -220,18 +231,15 @@ pub struct Block {
 pub fn current_block(points: &[(i64, u64)], now: i64) -> Option<Block> {
     let mut start: Option<i64> = None;
     let mut total = 0u64;
-    let mut series = Vec::new();
     for &(t, tokens) in points {
         if start.is_none_or(|s| t >= s + CLAUDE_BLOCK_SECS) {
             start = Some(t - t.rem_euclid(3600));
             total = 0;
-            series.clear();
         }
         total += tokens;
-        series.push((t, total));
     }
     let start = start?;
-    (now < start + CLAUDE_BLOCK_SECS).then_some(Block { start, tokens: total, series })
+    (now < start + CLAUDE_BLOCK_SECS).then_some(Block { start, tokens: total })
 }
 
 fn refresh_claude_estimate(app: &AppHandle, force: bool) {
@@ -252,17 +260,13 @@ fn refresh_claude_estimate(app: &AppHandle, force: bool) {
         {
             let mut limits = lock(&state.limits);
             match current_block(&points, now) {
-                Some(Block { start, tokens, series }) => {
-                    let limit = limits.claude_tokens_at_limit;
-                    let pct = |t: u64| limit.map(|l| (t as f64 / l.max(1) as f64 * 100.0).min(100.0));
+                Some(Block { start, tokens, .. }) => {
                     let w = window(&mut limits.claude, "five_hour", "5-hour");
-                    if w.exact {
+                    if w.exact && w.resets_at > now {
+                        // Claude's own numbers (status line or a limit hit) are better than a token count
+                    } else {
                         w.history.clear();
-                    }
-                    w.record(pct(tokens), Some(tokens), start + CLAUDE_BLOCK_SECS, now, false);
-                    // rebuild the pace from the transcript itself (more points than our readings)
-                    if limit.is_some() {
-                        w.history = series.iter().filter_map(|(t, total)| pct(*total).map(|p| (*t, p))).collect();
+                        w.record(None, Some(tokens), start + CLAUDE_BLOCK_SECS, now, false);
                     }
                 }
                 None => limits.claude.retain(|w| w.exact),
@@ -272,27 +276,98 @@ fn refresh_claude_estimate(app: &AppHandle, force: bool) {
     });
 }
 
-/// Claude stopped with a rate-limit error: remember how many tokens the
-/// window had, so later estimates can show a percentage.
-pub fn on_claude_limit_hit(app: &AppHandle) {
-    let app = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let now = now_secs();
-        if let Some(Block { tokens, .. }) = current_block(&claude_usage_points(now), now)
-            && tokens > 10_000
-        {
-            let state = app.state::<AppState>();
-            lock(&state.limits).claude_tokens_at_limit = Some(tokens);
-            crate::applog::line(format!("limits: learned Claude's 5-hour limit ≈ {tokens} tokens"));
-            refresh_claude_estimate(&app, true);
+/// Claude said it hit a usage limit (its own message in the transcript, with
+/// the exact reset time): tell you right away, and again when it's back.
+pub fn claude_limit_hit(app: &AppHandle, hit: &glowby_detective::live::LimitHit) {
+    if hit.resets_at <= now_secs() {
+        return;
+    }
+    let (key, label) = match hit.kind.as_str() {
+        "seven_day" | "seven_day_opus" | "seven_day_sonnet" => ("seven_day", "Weekly"),
+        _ => ("five_hour", "5-hour"),
+    };
+    let state = app.state::<AppState>();
+    let codex_left = {
+        let mut limits = lock(&state.limits);
+        if !limits.warned.insert(format!("Claude:hit:{}", hit.resets_at)) {
+            return; // already told you about this one
         }
+        // this alert says it all: no "Claude is at 100%" warning on top
+        for level in ["95", "high", "pace"] {
+            limits.warned.insert(format!("Claude:{key}:{}:{level}", hit.resets_at));
+        }
+        window(&mut limits.claude, key, label).record(Some(100.0), None, hit.resets_at, hit.at, true);
+        limits.claude_out_until = hit.resets_at;
+        limits.last_save = 0; // save right away
+        let now = now_secs();
+        limits.codex.iter().filter(|w| w.resets_at > now).filter_map(|w| w.used).fold(None::<f64>, |acc, u| Some(acc.map_or(u, |a| a.max(u)))).map(|worst| 100.0 - worst)
+    };
+    crate::applog::line(format!("limits: Claude hit its {label} limit, back at {}", clock(hit.resets_at, now_secs())));
+    let back = format!("{} (in {})", clock(hit.resets_at, now_secs()), duration_text((hit.resets_at - now_secs()) as f64 / 60.0));
+    let codex = match codex_left {
+        Some(left) if left > 20.0 => format!(" Codex still has about {left:.0}% left if you want to keep going there."),
+        _ => String::new(),
+    };
+    let offer = crate::actions::Offer {
+        kind: "limitHit",
+        title: format!("Claude is out of usage until {}", clock(hit.resets_at, now_secs())),
+        detail: format!("Claude says its {} limit is used up. It's back at {back}, and I'll tell you the moment it is.{codex}", label.to_lowercase()),
+        project: String::new(),
+        url: None,
+        dir: None,
+    };
+    let _ = crate::alerts::raise(
+        app,
+        offer,
+        std::time::Duration::from_secs(3600),
+        Some((format!("Claude is out of usage until {}", clock(hit.resets_at, now_secs())), "Glowby will tell you when it's back.".into())),
+    );
+    after_update(app);
+    schedule_back(app, hit.resets_at);
+}
+
+/// "Claude is back!" when the limit resets.
+fn schedule_back(app: &AppHandle, at: i64) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let wait = (at - now_secs()).max(0) as u64 + 5;
+        tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+        let state = app.state::<AppState>();
+        {
+            let mut limits = lock(&state.limits);
+            if limits.claude_out_until != at {
+                return; // a newer limit hit replaced this one
+            }
+            limits.claude_out_until = 0;
+            limits.last_save = 0;
+        }
+        crate::applog::line("limits: Claude is back");
+        let offer = crate::actions::Offer {
+            kind: "claudeBack",
+            title: "Claude is back!".into(),
+            detail: format!("Your usage limit reset at {}. Ready when you are.", clock(at, now_secs())),
+            project: String::new(),
+            url: None,
+            dir: None,
+        };
+        let _ = crate::alerts::raise(&app, offer, std::time::Duration::from_secs(30 * 60), Some(("Claude is back!".into(), "Your usage limit reset. Ready when you are.".into())));
+        after_update(&app);
     });
+}
+
+/// At start: if Claude is still out, the "back" alert is scheduled again.
+pub fn resume(app: &AppHandle) {
+    let until = lock(&app.state::<AppState>().limits).claude_out_until;
+    if until > now_secs() {
+        schedule_back(app, until);
+    }
 }
 
 // ---------------------------------------------------------------- Codex: session logs
 
-fn newest_codex_log() -> Option<PathBuf> {
-    let root = home()?.join(".codex").join("sessions");
+/// Codex's logs, newest first (only the last few days).
+fn recent_codex_logs() -> Vec<PathBuf> {
+    let Some(root) = home().map(|h| h.join(".codex").join("sessions")) else { return Vec::new() };
     // sessions/YYYY/MM/DD/rollout-*.jsonl: walk the newest folders first
     let newest_dir = |dir: &Path| -> Vec<PathBuf> {
         let mut dirs: Vec<PathBuf> = std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
@@ -300,29 +375,39 @@ fn newest_codex_log() -> Option<PathBuf> {
         dirs.reverse();
         dirs
     };
+    let mut logs = Vec::new();
     for year in newest_dir(&root).into_iter().take(2) {
         for month in newest_dir(&year).into_iter().take(2) {
-            for day in newest_dir(&month).into_iter().take(3) {
-                let newest = std::fs::read_dir(&day)
+            for day in newest_dir(&month).into_iter().take(4) {
+                let mut files: Vec<(std::time::SystemTime, PathBuf)> = std::fs::read_dir(&day)
                     .into_iter()
                     .flatten()
                     .flatten()
                     .filter(|e| e.path().extension().is_some_and(|x| x == "jsonl"))
-                    .max_by_key(|e| e.metadata().and_then(|m| m.modified()).ok());
-                if let Some(file) = newest {
-                    return Some(file.path());
+                    .filter_map(|e| Some((e.metadata().and_then(|m| m.modified()).ok()?, e.path())))
+                    .collect();
+                files.sort();
+                logs.extend(files.into_iter().rev().map(|(_, p)| p));
+                if logs.len() >= 20 {
+                    return logs;
                 }
             }
         }
     }
-    None
+    logs
+}
+
+/// The newest real limit numbers. Some logs have none (imported chats, a
+/// session that ended before its first reply), so older logs are tried too.
+fn newest_codex_numbers() -> Option<(Value, i64)> {
+    recent_codex_logs().iter().find_map(|p| parse_codex_limits(&tail(p)))
 }
 
 /// The newest rate-limit numbers in a Codex log ("token_count" events).
 pub fn parse_codex_limits(log: &str) -> Option<(Value, i64)> {
     log.lines().rev().filter(|l| l.contains("\"rate_limits\"")).find_map(|line| {
         let v: Value = serde_json::from_str(line).ok()?;
-        let rl = v.pointer("/payload/rate_limits").or_else(|| v.pointer("/payload/info/rate_limits"))?.clone();
+        let rl = v.pointer("/payload/rate_limits").or_else(|| v.pointer("/payload/info/rate_limits")).filter(|r| r.is_object())?.clone();
         rl.get("primary").filter(|p| p.is_object())?;
         let at = v.get("timestamp").and_then(Value::as_str).and_then(|t| DateTime::parse_from_rfc3339(t).ok()).map(|t| t.timestamp())?;
         Some((rl, at))
@@ -341,7 +426,7 @@ fn refresh_codex(app: &AppHandle, force: bool) {
     }
     let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let Some((rl, at)) = newest_codex_log().map(|p| tail(&p)).as_deref().and_then(parse_codex_limits) else { return };
+        let Some((rl, at)) = newest_codex_numbers() else { return };
         let state = app.state::<AppState>();
         {
             let mut limits = lock(&state.limits);
@@ -377,7 +462,6 @@ pub fn on_event(app: &AppHandle, event: &str, payload: &Value) {
     match event {
         "Stop" | "PostToolUse" | "SessionStart" if codex => refresh_codex(app, false),
         "Stop" if !codex => refresh_claude_estimate(app, false),
-        "StopFailure" if !codex && crate::sessions::str_field(payload, "error_type") == Some("rate_limit") => on_claude_limit_hit(app),
         _ => {}
     }
 }
@@ -388,8 +472,9 @@ pub fn refresh_now(app: &AppHandle) {
     refresh_claude_estimate(app, true);
 }
 
-/// Saves (at most every minute), checks for warnings, updates Glowby.
+/// Checks for warnings, saves (at most every minute, or now after a warning), updates Glowby.
 fn after_update(app: &AppHandle) {
+    maybe_warn(app);
     let state = app.state::<AppState>();
     let now = now_secs();
     {
@@ -401,7 +486,6 @@ fn after_update(app: &AppHandle) {
             }
         }
     }
-    maybe_warn(app);
     state::publish(app);
 }
 
@@ -460,7 +544,7 @@ pub fn duration_text(minutes: f64) -> String {
 
 fn clock(t: i64, now: i64) -> String {
     let Some(dt) = Local.timestamp_opt(t, 0).single() else { return "?".into() };
-    if t - now < 20 * 3600 { dt.format("%H:%M").to_string() } else { dt.format("%a %d %b, %H:%M").to_string() }
+    if (t - now).abs() < 20 * 3600 { dt.format("%H:%M").to_string() } else { dt.format("%a %d %b, %H:%M").to_string() }
 }
 
 pub fn window_view(w: &WindowState, now: i64) -> WindowView {
@@ -484,7 +568,7 @@ pub fn window_view(w: &WindowState, now: i64) -> WindowView {
         (Some(e), _) if e < mins_to_reset => (format!("≈ may run low in {}", duration_text(e)), true),
         (Some(_), _) => ("≈ should last until it resets".into(), false),
         (None, Some(_)) => ("pace unknown yet (needs a few readings)".into(), false),
-        (None, None) => ("percent unknown until Glowby learns your limit".into(), false),
+        (None, None) => ("Claude Code chats only; claude.ai chats use the same limit".into(), false),
     };
     let age = now - w.observed_at;
     WindowView {
@@ -514,7 +598,7 @@ pub fn view(app: &AppHandle) -> Option<LimitsView> {
                 agent: "Claude".into(),
                 plan: String::new(),
                 windows: live(&limits.claude),
-                empty_hint: "No numbers yet. They appear after Claude Code replies (exact in terminal sessions with Glowby's status line, otherwise an estimate).".into(),
+                empty_hint: "No numbers yet. Exact percentages come only from terminal sessions (Glowby's status line); the Claude app doesn't share them. Glowby still tells you the moment Claude hits a limit, and when it's back.".into(),
             },
             AgentView {
                 agent: "Codex".into(),
@@ -544,21 +628,26 @@ fn maybe_warn(app: &AppHandle) {
         let claude_left = best_left(&limits.claude);
         let codex_left = best_left(&limits.codex);
         for (agent, list, other, other_left) in [("Claude", limits.claude.clone(), "Codex", codex_left), ("Codex", limits.codex.clone(), "Claude", claude_left)] {
-            for w in list.iter().filter(|w| w.resets_at > now && now - w.observed_at <= STALE_SECS) {
+            // Within a window usage only goes up, so an older reading is still a
+            // safe minimum and is warned about too. Only the pace needs fresh numbers.
+            for w in list.iter().filter(|w| w.resets_at > now) {
                 let v = window_view(w, now);
                 let Some(used) = w.used else { continue };
-                let level = if used >= 95.0 { "95" } else if used >= s.limits.warn_percent as f64 { "high" } else if v.tight { "pace" } else { continue };
+                let fresh = now - w.observed_at <= STALE_SECS;
+                let level = if used >= 95.0 { "95" } else if used >= s.limits.warn_percent as f64 { "high" } else if v.tight && fresh { "pace" } else { continue };
                 let key = format!("{agent}:{}:{}:{level}", w.key, w.resets_at);
                 if !limits.warned.insert(key) {
                     continue;
                 }
+                limits.last_save = 0; // remember right away that you were told
                 let tip = match other_left {
                     Some(left) if left > 30.0 => format!(" {other} still has about {left:.0}% left, so you could continue there."),
                     _ => String::new(),
                 };
+                let age = if fresh { "These numbers can be a few minutes old." } else { "That's the latest number I have; it can only be higher now." };
                 warning = Some((
                     format!("{agent} is at {} of its {} limit", v.used_text, w.label.to_lowercase()),
-                    format!("{}, {}. {}.{tip} These numbers are approximate and can be a few minutes old.", v.forecast, v.resets_text, v.as_of),
+                    format!("{}, {}. {}.{tip} {age}", v.forecast, v.resets_text, v.as_of),
                 ));
                 break;
             }
@@ -572,11 +661,9 @@ fn maybe_warn(app: &AppHandle) {
         }
     }
     let Some((title, detail)) = warning else { return };
+    let notification = (title.clone(), "Glowby has a handoff note ready, to continue later or with the other agent.".to_string());
     let offer = crate::actions::Offer { kind: "limits", title, detail, project: String::new(), url: None, dir: None };
-    lock(&state.ui).offer = Some((offer, std::time::Instant::now() + std::time::Duration::from_secs(3600)));
-    state::hold_out(app, 30);
-    crate::sounds::play(app, crate::sounds::Sound::Notice);
-    crate::pet_window::show(app);
+    let _ = crate::alerts::raise(app, offer, std::time::Duration::from_secs(3600), Some(notification));
 }
 
 #[cfg(test)]
@@ -634,7 +721,6 @@ mod tests {
         let b = current_block(&points, base + 3 * h).unwrap();
         assert_eq!(b.start, base, "the new block starts at the hour of its first message");
         assert_eq!(b.tokens, 3000);
-        assert_eq!(b.series.last(), Some(&(base + 2 * h, 3000)));
         assert!(current_block(&points, base + 6 * h).is_none(), "that block has ended");
     }
 

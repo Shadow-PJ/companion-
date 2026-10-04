@@ -105,6 +105,31 @@ body {
 #pet {
   flex: none;
 }
+/* an important alert: a little bonk and wobble (independent of the slide-in transform) */
+#stage.nudge #pet {
+  animation: nudge 0.8s ease-out;
+}
+#stage.nudge #bubble {
+  animation: nudge-glow 1.6s ease-out;
+}
+@keyframes nudge {
+  0% { translate: 0 -10px; rotate: 0deg; }
+  20% { translate: 0 4px; rotate: -9deg; }
+  40% { translate: 0 -3px; rotate: 8deg; }
+  60% { rotate: -5deg; }
+  80% { rotate: 3deg; }
+  100% { translate: 0 0; rotate: 0deg; }
+}
+@keyframes nudge-glow {
+  0%, 60% { filter: drop-shadow(0 0 10px rgba(255, 190, 60, 0.9)); }
+  100% { filter: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #stage.nudge #pet,
+  #stage.nudge #bubble {
+    animation: none;
+  }
+}
 
 .bubble {
   position: relative;

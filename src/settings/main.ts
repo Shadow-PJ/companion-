@@ -302,6 +302,40 @@ function permissionsSection() {
   );
 }
 
+function usageGuardSection() {
+  const d = settings.detective;
+  return section(
+    "Saves your usage automatically",
+    "Glowby steps in before usage is wasted, instead of only telling you afterwards. Big chats are the expensive ones: Claude keeps a chat in a cache for a while (5 minutes or 1 hour), and after that your next message re-sends the whole chat at full price. Everything is checked on this PC from Claude Code's own logs.",
+    toggle(
+      "Stop expensive messages to cold chats",
+      "When a big chat's cache has gone cold, Glowby stops your message once and puts a fresh-start note with it on your clipboard. Paste it into a new chat, or send the message again within 10 minutes to go ahead anyway. Needs the updated connection (Connect Claude Code above).",
+      () => d.guard,
+      (v) => (d.guard = v),
+    ),
+    toggle(
+      "Remind me before a big chat goes cold",
+      "Two minutes before, if you haven't replied, so you can answer while it's still cheap.",
+      () => d.cacheReminder,
+      (v) => (d.cacheReminder = v),
+    ),
+    numberInput("A big chat has at least", "50 to 2000 thousand tokens.", 50, 2000, () => Math.round(d.guardMinTokens / 1000), (v) => (d.guardMinTokens = v * 1000), "k tokens"),
+    toggle(
+      "Suggest a fresh chat when one gets very long",
+      "Glowby writes the fresh-start note for you (your recent requests, the files that changed, how the last answer ended). Built on your PC, no AI, no tokens.",
+      () => d.bigChat,
+      (v) => (d.bigChat = v),
+    ),
+    numberInput("Very long means", "100 to 2000 thousand tokens.", 100, 2000, () => Math.round(d.bigChatTokens / 1000), (v) => (d.bigChatTokens = v * 1000), "k tokens"),
+    toggle(
+      "Windows notifications for important alerts",
+      "A usage limit hit, Claude being back, a stopped message: also as a Windows notification, so you see it on any screen. Glowby jumps out with a sound either way (never during a fullscreen game).",
+      () => settings.alerts.windowsNotifications,
+      (v) => (settings.alerts.windowsNotifications = v),
+    ),
+  );
+}
+
 async function detectiveSection() {
   const report = el("pre", { class: "diff report" });
   async function load() {
@@ -314,12 +348,6 @@ async function detectiveSection() {
     "Finds what eats your Claude usage limits, from your local Claude Code logs: cache rebuilds after breaks, files Claude re-reads without changes, and long sessions that get expensive. It reads numbers, times, tool names and file paths, never your messages, and nothing leaves this PC.",
     toggle("Token detective", null, () => settings.detective.enabled, (v) => (settings.detective.enabled = v)),
     toggle("Weekly case report", "On your first coding activity each week, Glowby puts on his detective hat and shows what he found.", () => settings.detective.weekly, (v) => (settings.detective.weekly = v)),
-    toggle(
-      "Cache reminder",
-      "A minute before Claude's cache for a chat goes cold, if you haven't replied, Glowby mentions it once. Needs Glowby as Claude Code's status line (terminal sessions).",
-      () => settings.detective.cacheReminder,
-      (v) => (settings.detective.cacheReminder = v),
-    ),
     el(
       "div",
       { class: "actions" },
@@ -363,7 +391,7 @@ async function limitsSection() {
   render(await invoke<LimitsView | null>("limits_refresh"));
   return section(
     "AI limits (Claude & Codex)",
-    "How much of your Claude and Codex usage limits you've used, when they reset, and a rough guess of when you may run low. Codex's numbers and Claude's numbers from Claude Code's status line are exact, but can be a few minutes old. Without the status line, Glowby estimates Claude from the token counts in your local transcripts. The \"runs low in\" time assumes you keep your recent pace, so treat it as a hint. Everything is read on this PC; nothing is sent anywhere.",
+    "How much of your Claude and Codex usage limits you've used, when they reset, and a rough guess of when you may run low. Codex's numbers are exact (from its own logs). Claude shares exact percentages only with terminal sessions (Glowby's status line); the Claude app doesn't, and claude.ai chats use the same limit. So for Claude, Glowby reliably tells you the moment you hit a limit and when it's back (Claude's own reset time), plus a token count. The \"runs low in\" time assumes you keep your recent pace, so treat it as a hint. Everything is read on this PC; nothing is sent anywhere.",
     toggle("Show AI limits", null, () => settings.limits.enabled, (v) => (settings.limits.enabled = v)),
     toggle(
       "Warn me when a limit gets tight",
@@ -1068,6 +1096,7 @@ async function main() {
     petSection(monitors),
     permissionsSection(),
     autoAllowSection(),
+    usageGuardSection(),
     await limitsSection(),
     await detectiveSection(),
     chatSection(info),

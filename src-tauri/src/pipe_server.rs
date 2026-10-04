@@ -117,7 +117,28 @@ async fn handle_client(app: AppHandle, pipe: NamedPipeServer) {
     if envelope.event == "StatusLine" {
         // Claude Code's status line: only the usage-limit numbers, no session activity
         crate::limits::on_claude_status(&app, &envelope.payload);
-        crate::detective::on_status(&app, &envelope.payload);
+        crate::guard::on_status(&app, &envelope.payload);
+        return;
+    }
+    if envelope.event == "UserPromptSubmit" {
+        // the usual activity update, then the cold-chat guard decides: go or stop once
+        on_event(&app, &envelope);
+        if envelope.wants_reply {
+            let reply = crate::guard::on_prompt(&app, &envelope.payload, envelope.from_pet_chat).await;
+            if matches!(reply, HookReply::Deny { .. }) {
+                // the message never reached Claude: this turn is over, not "thinking"
+                let mut p = envelope.payload.clone();
+                if let Some(o) = p.as_object_mut() {
+                    o.insert("last_assistant_message".into(), "Glowby stopped this message to save your usage".into());
+                }
+                lock(&app.state::<AppState>().tracker).apply("Stop", &p, false);
+                state::publish(&app);
+            }
+            let mut text = serde_json::to_string(&reply).unwrap_or_else(|_| "{\"kind\":\"pass\"}".into());
+            text.push('\n');
+            let _ = write_half.write_all(text.as_bytes()).await;
+            let _ = write_half.flush().await;
+        }
         return;
     }
     if !envelope.wants_reply {
@@ -203,7 +224,7 @@ fn on_event(app: &AppHandle, envelope: &HookEnvelope) {
     crate::quests::tick(app);
     crate::learn::on_event(app, &envelope.event, payload);
     crate::limits::on_event(app, &envelope.event, payload);
-    crate::detective::on_event(app, &envelope.event, payload, envelope.from_pet_chat);
+    crate::guard::on_event(app, &envelope.event, payload, envelope.from_pet_chat);
     let session = crate::sessions::str_field(payload, "session_id").unwrap_or("");
     let tools_this_turn = lock(&state.tracker).tools_this_turn(session);
     crate::squad::on_event(app, &envelope.event, payload, envelope.from_pet_chat, tools_this_turn);

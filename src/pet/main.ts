@@ -145,6 +145,13 @@ void listen("pet://blur", () => bubble.onBlur());
 // Sounds arrive even while Glowby is hidden (Rust already checked Settings and game mode).
 void listen<{ name: string; volume: number }>("pet://sound", (e) => playSound(e.payload.name, e.payload.volume));
 void listen<string>("pet://emote", (e) => renderer.playEmote(e.payload));
+// an important alert: jump and wobble so you notice
+void listen("pet://nudge", () => {
+  renderer.playEmote("jump");
+  stage.classList.remove("nudge");
+  void stage.offsetWidth; // restart the animation
+  stage.classList.add("nudge");
+});
 void listen<{ amount: number; reason: string }>("pet://xp", (e) => {
   if (visible) renderer.addFloater(`+${e.payload.amount} XP`);
 });

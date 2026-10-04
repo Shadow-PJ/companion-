@@ -572,3 +572,61 @@ same id). It never keeps message text; for a file read it keeps only the length.
 The analyser started as a terminal command (`detective-report`) and its numbers were
 compared with a second, independently written script before Glowby used them: same
 reply count, same 8 rebuilds, same 3.4M tokens. Only then did the pet get its hat.
+
+## Version 0.5: Glowby acts for you
+
+v0.4 told you *afterwards* what wasted your usage. v0.5 steps in *before*.
+
+### 1. What actually used up the limit
+
+On the day this version started, one message used a whole 5-hour Claude limit. The logs
+showed why: the chat was 963k tokens long, its cache had a 1-hour lifetime, and the next
+message came 19 hours later. Claude Code had to send the whole chat again and write it
+into a new cache: 926,021 tokens for one reply. Nothing was wrong with the message itself.
+
+### 2. The cold-chat guard
+
+Claude Code runs the `UserPromptSubmit` hook before a message is sent, and the hook may
+answer `{"decision": "block", "reason": "…"}`. Glowby used that event only to listen
+before (`async`); now Claude Code waits for it, at most 3 seconds (then the message goes
+through: fail open). Glowby reads the end of the chat's transcript:
+
+* **size** = the last reply's input + cache reads + cache writes (what the next message re-sends);
+* **cold at** = the last reply's time + the cache lifetime that reply recorded (1 h or 5 min).
+
+If the chat is big (150k tokens by default) and cold, Glowby stops the message *once*,
+puts a fresh-start note plus your message on the clipboard, and explains the cost. Sending
+the same message again within 10 minutes goes through: Glowby warns, you decide. A
+blocked message costs 0 tokens (checked with a test hook: `num_turns: 0`).
+
+### 3. A handoff note without AI
+
+Asking Claude to write a handoff note costs usage, which is the wrong time for it. The
+fresh-start note is built from the transcript on your PC: your last requests (with Claude
+Code's own tags removed), the files that changed, and how the last answer ended.
+
+### 4. Exact facts beat guesses
+
+Claude's app doesn't share your usage percentage, and claude.ai chats use the same limit
+without appearing in Claude Code's logs. So the old "learn your limit from token counts"
+estimate could show made-up percentages, and it's gone. What *is* exact: when Claude
+refuses a message because of a limit, its log line has `quotaLimits.resetsAt`. Glowby
+alerts you at once and again at that exact time ("Claude is back!").
+
+Codex is different: its logs have exact percentages. Inside one window usage only goes
+up, so an older number is still a safe minimum, and Glowby now warns from it too
+(v0.4 skipped numbers older than 30 minutes, which is why it stayed quiet at 91%).
+
+### 5. Alerts you can't miss
+
+Important alerts make Glowby jump out with a sound and a wobble, keep the card until
+you answer, nudge once more after 4 minutes, and can send a Windows notification.
+A single .exe has no installer to register it with Windows, so Glowby writes one key
+under `HKEY_CURRENT_USER\Software\Classes\AppUserModelId` with its name, as installers
+do. A less important alert never covers a more important one.
+
+### 6. Why auto-allow "did nothing"
+
+Auto-allow answers Claude's permission questions. A chat in Claude's own **Auto** mode
+never asks, so there was nothing to answer. Hook events carry `permission_mode`, so
+Glowby now says so when you turn auto-allow on, and briefly shows each action it allowed.

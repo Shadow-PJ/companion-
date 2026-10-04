@@ -656,7 +656,7 @@ export class Bubble {
         el(
           "div",
           { class: "actions" },
-          button("Save a handoff note", "primary", choose("handoff"), "Ask Claude to write HANDOFF.md: what you're doing and the next steps"),
+          button("Copy handoff note", "primary", choose("copyNote"), "A note with what you were doing, to paste into a new chat or the other agent (made on your PC, no AI)"),
           button("Show limits", "", () => {
             void invoke("offer_action", { choice: "dismiss" });
             this.openLimits();
@@ -664,6 +664,10 @@ export class Bubble {
           button("OK", "ghost", choose("dismiss")),
         ),
       );
+      return;
+    }
+    if (o.kind === "guard" || o.kind === "limitHit" || o.kind === "claudeBack" || o.kind === "cacheSoon" || o.kind === "bigChat") {
+      this.renderUsageAlert(o, choose);
       return;
     }
     if (o.kind === "break") {
@@ -690,6 +694,38 @@ export class Bubble {
         ),
         isChecks ? el("div", { class: "muted small", text: "I'll feel better when they pass." }) : null,
       ),
+    );
+  }
+
+  /** The alerts that save your usage: a stopped message, a limit hit, a cold cache, a big chat. */
+  private renderUsageAlert(o: Offer, choose: (choice: string) => () => void) {
+    const eyebrow = {
+      guard: "Saved your usage",
+      limitHit: "AI limits",
+      claudeBack: "AI limits",
+      cacheSoon: "Token detective",
+      bigChat: "Token detective",
+    }[o.kind as "guard" | "limitHit" | "claudeBack" | "cacheSoon" | "bigChat"];
+    const dot = o.kind === "claudeBack" ? "done" : "attention";
+    const copy = (label: string) => button(label, "primary", choose("copyNote"), "A note with what you were doing, to paste into a new chat (made on your PC, no AI)");
+    const buttons =
+      o.kind === "claudeBack"
+        ? [button("Yay!", "primary", choose("dismiss"))]
+        : o.kind === "limitHit"
+          ? [
+              copy("Copy handoff note"),
+              button("Show limits", "", () => {
+                void invoke("offer_action", { choice: "dismiss" });
+                this.openLimits();
+              }),
+              button("OK", "ghost", choose("dismiss")),
+            ]
+          : [copy(o.kind === "guard" ? "Copy note again" : "Copy fresh-start note"), button(o.kind === "bigChat" ? "Not now" : "OK", "ghost", choose("dismiss"))];
+    this.offerBox.replaceChildren(
+      el("div", { class: "eyebrow" }, el("span", { class: `dot ${dot}` }), o.project ? `${eyebrow} · ${o.project}` : eyebrow),
+      el("div", { class: "title", text: o.title }),
+      el("div", { class: "line", text: o.detail }),
+      el("div", { class: "actions" }, ...buttons),
     );
   }
 
@@ -781,7 +817,7 @@ export class Bubble {
     // Auto-allow, quietly: one line with a Stop button (timed) under the status.
     const a = v.autoAllow;
     if (a && !v.toast) {
-      key += `|auto:${a.full}:${a.minutesLeft}:${a.allowed}`;
+      key += `|auto:${a.full}:${a.minutesLeft}:${a.allowed}:${a.note ?? ""}`;
       const text = `⚡ ${a.full ? "Full auto" : `Auto-allow · ${a.minutesLeft} min left`} · ${a.allowed} allowed`;
       content.push(
         el(
@@ -791,6 +827,7 @@ export class Bubble {
           a.full ? null : button("Stop", "ghost tiny", () => void invoke("auto_allow_stop"), "Turn auto-allow off"),
         ),
       );
+      if (a.note) content.push(el("div", { class: "muted small", text: a.note }));
     }
     // Level, XP bar, streak and quests under the status (not on toasts).
     const p = v.toast ? null : v.progress;

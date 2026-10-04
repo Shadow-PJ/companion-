@@ -70,7 +70,7 @@ export interface ProgressInfo {
 }
 
 export interface Offer {
-  kind: "clipboardError" | "failingChecks" | "break" | "ci" | "limits";
+  kind: "clipboardError" | "failingChecks" | "break" | "ci" | "limits" | "guard" | "limitHit" | "claudeBack" | "cacheSoon" | "bigChat";
   title: string;
   detail: string;
   project: string;
@@ -190,7 +190,7 @@ export interface PetView {
   /** Anime pets you've unlocked (id + name). */
   pets: ActionView[];
   /** Auto-allow is on (timed or full); null = off. */
-  autoAllow: { full: boolean; minutesLeft: number | null; allowed: number } | null;
+  autoAllow: { full: boolean; minutesLeft: number | null; allowed: number; note: string | null } | null;
   /** Claude / Codex usage limits (null = turned off). */
   limits: LimitsView | null;
   /** The token detective's case report, while it's open. */
@@ -238,7 +238,16 @@ export interface Settings {
   squad: { enabled: boolean; maxShown: number };
   autoAllow: { full: boolean; never: string[]; outsideProject: boolean };
   limits: { enabled: boolean; warn: boolean; warnPercent: number };
-  detective: { enabled: boolean; weekly: boolean; cacheReminder: boolean };
+  detective: {
+    enabled: boolean;
+    weekly: boolean;
+    cacheReminder: boolean;
+    guard: boolean;
+    guardMinTokens: number;
+    bigChat: boolean;
+    bigChatTokens: number;
+  };
+  alerts: { windowsNotifications: boolean };
 }
 
 export interface LimitWindow {

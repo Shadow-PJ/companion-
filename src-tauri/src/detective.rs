@@ -1,9 +1,8 @@
 //! The token detective inside Glowby:
 //! * the weekly **case report**: what ate your Claude limits this week, from
 //!   your local logs (the analysis itself lives in crates/glowby-detective);
-//! * the live **cache reminder**: Claude Code's status line says when the
-//!   conversation cache goes cold; a minute before, if you haven't replied,
-//!   Glowby mentions it once.
+//! * the live checks that act for you (cold-chat guard, cache reminder, big
+//!   chat helper) are in guard.rs.
 //!
 //! Only numbers, times, tool names and file paths are read; nothing is sent anywhere.
 
@@ -11,25 +10,12 @@ use crate::settings;
 use crate::state::{self, AppState, lock};
 use glowby_detective::Report;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::collections::HashMap;
-use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
 const WEEK_SECS: i64 = 7 * 86_400;
-const REMIND_BEFORE_SECS: i64 = 60;
-/// At most one cache reminder per session in this time.
-const REMIND_EVERY_SECS: i64 = 30 * 60;
 
 fn now_secs() -> i64 {
     chrono::Local::now().timestamp()
-}
-
-#[derive(Clone, Default)]
-struct CacheState {
-    expires_at: i64,
-    last_prompt: i64,
-    reminded_at: i64,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -40,8 +26,6 @@ pub struct Detective {
     pub last: Option<Report>,
     #[serde(skip)]
     pub running: bool,
-    #[serde(skip)]
-    cache: HashMap<String, CacheState>,
 }
 
 #[derive(Serialize, Clone)]
@@ -186,75 +170,4 @@ pub fn view(app: &AppHandle) -> Option<CaseView> {
             r.cache.normal_rebuilds, r.cache.other_rebuilds
         ),
     })
-}
-
-// ---------------------------------------------------------------- the live cache reminder
-
-/// Claude Code's status line data: when this session's cache goes cold.
-pub fn on_status(app: &AppHandle, payload: &Value) {
-    let Some(sid) = payload.get("session_id").and_then(Value::as_str) else { return };
-    let expires = payload.pointer("/prompt_cache/expires_at").and_then(Value::as_i64).unwrap_or(0);
-    let state = app.state::<AppState>();
-    lock(&state.detective).cache.entry(sid.to_string()).or_default().expires_at = expires;
-}
-
-pub fn on_event(app: &AppHandle, event: &str, payload: &Value, from_pet_chat: bool) {
-    if from_pet_chat || crate::sessions::agent_of(payload) != "claude" {
-        return;
-    }
-    let Some(sid) = payload.get("session_id").and_then(Value::as_str).map(String::from) else { return };
-    let state = app.state::<AppState>();
-    match event {
-        "UserPromptSubmit" => {
-            lock(&state.detective).cache.entry(sid).or_default().last_prompt = now_secs();
-        }
-        "Stop" => {
-            let s = state.settings();
-            if s.detective.enabled && s.detective.cache_reminder {
-                let project = crate::sessions::project_name(crate::sessions::str_field(payload, "cwd").unwrap_or(""));
-                schedule_reminder(app.clone(), sid, project);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn schedule_reminder(app: AppHandle, sid: String, project: String) {
-    let stopped = now_secs();
-    tauri::async_runtime::spawn(async move {
-        // the status line updates right after a reply; give it a moment
-        tokio::time::sleep(Duration::from_secs(3)).await;
-        loop {
-            let state = app.state::<AppState>();
-            let (expires, replied, reminded) = {
-                let d = lock(&state.detective);
-                let Some(c) = d.cache.get(&sid) else { return };
-                (c.expires_at, c.last_prompt > stopped, c.reminded_at)
-            };
-            let now = now_secs();
-            if replied || expires <= now || now - reminded < REMIND_EVERY_SECS {
-                return;
-            }
-            let wait = expires - REMIND_BEFORE_SECS - now;
-            if wait > 0 {
-                tokio::time::sleep(Duration::from_secs(wait as u64)).await;
-                continue; // check again: you may have replied, or the cache moved
-            }
-            if lock(&state.ui).game_active {
-                return;
-            }
-            lock(&state.detective).cache.entry(sid.clone()).or_default().reminded_at = now;
-            let at = chrono::DateTime::from_timestamp(expires, 0).map(|t| t.with_timezone(&chrono::Local).format("%H:%M").to_string()).unwrap_or_default();
-            state::toast(
-                &app,
-                "info",
-                format!("Claude's cache for this chat goes cold at {at} (in about a minute). Reply before then, or after a longer break start with a short summary (/compact)."),
-                project,
-                20,
-            );
-            crate::pet_window::show(&app);
-            state::publish(&app);
-            return;
-        }
-    });
 }

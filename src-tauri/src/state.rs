@@ -58,6 +58,7 @@ pub struct AppState {
     pub auto_log: Mutex<crate::autoallow::AutoLog>,
     pub limits: Mutex<crate::limits::Limits>,
     pub detective: Mutex<crate::detective::Detective>,
+    pub guard: Mutex<crate::guard::Guard>,
     timer: watch::Sender<Option<Instant>>,
     timer_rx: Mutex<Option<watch::Receiver<Option<Instant>>>>,
 }
@@ -229,6 +230,7 @@ impl AppState {
             auto_log: Mutex::new(auto_log),
             limits: Mutex::new(limits),
             detective: Mutex::new(detective),
+            guard: Mutex::new(crate::guard::Guard::default()),
             timer,
             timer_rx: Mutex::new(Some(timer_rx)),
             paths,
@@ -312,6 +314,7 @@ fn view_and_deadline(app: &AppHandle) -> (PetView, Option<Instant>) {
         learn.expire(now);
         (learn.view(now), learn.deadline())
     };
+    let auto_note = crate::guard::auto_mode_note(app);
     let break_due = if settings.breaks.enabled {
         lock(&state.breaks).due_at(now, Duration::from_secs(settings.breaks.interval_mins as u64 * 60))
     } else {
@@ -335,7 +338,10 @@ fn view_and_deadline(app: &AppHandle) -> (PetView, Option<Instant>) {
             now + Duration::from_secs(6),
         ));
     }
-    let auto_allow = crate::autoallow::view(settings.auto_allow.full, ui.auto_until, ui.auto_count, now);
+    let mut auto_allow = crate::autoallow::view(settings.auto_allow.full, ui.auto_until, ui.auto_count, now);
+    if let Some(a) = auto_allow.as_mut() {
+        a.note = auto_note;
+    }
     let mut deadlines: Vec<Instant> = tracker_next.into_iter().collect();
     deadlines.extend(ui.toast.as_ref().map(|(_, until)| *until));
     deadlines.extend(ui.preview.map(|(_, until)| until));

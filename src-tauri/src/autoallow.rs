@@ -139,6 +139,8 @@ pub struct AutoAllowView {
     pub minutes_left: Option<u32>,
     /// Actions allowed since you turned it on.
     pub allowed: u32,
+    /// Why there may be nothing to allow (Claude's own Auto mode is on).
+    pub note: Option<String>,
 }
 
 /// Which mode is on right now, if any.
@@ -152,7 +154,7 @@ pub fn active(app: &AppHandle) -> Option<&'static str> {
 
 pub fn view(full: bool, until: Option<Instant>, allowed: u32, now: Instant) -> Option<AutoAllowView> {
     let minutes_left = until.filter(|u| *u > now).map(|u| (u.duration_since(now).as_secs().div_ceil(60)) as u32);
-    (full || minutes_left.is_some()).then_some(AutoAllowView { full, minutes_left, allowed })
+    (full || minutes_left.is_some()).then_some(AutoAllowView { full, minutes_left, allowed, note: None })
 }
 
 /// Turns timed auto-allow on (or extends it).
@@ -167,6 +169,9 @@ pub fn start(app: &AppHandle, minutes: u32) {
         ui.auto_until = Some(Instant::now() + Duration::from_secs(minutes as u64 * 60));
     }
     crate::applog::line(format!("auto-allow on for {minutes} min"));
+    if let Some(note) = crate::guard::auto_mode_note(app) {
+        state::toast(app, "info", note, String::new(), 12);
+    }
     state::publish(app);
 }
 
@@ -196,6 +201,9 @@ pub fn try_allow(app: &AppHandle, payload: &Value) -> bool {
         what: crate::sessions::shorten(&describe(tool, &input), 160),
         mode: mode.into(),
     };
+    // a quick sign that it worked (shown while Glowby is out; no pop-out)
+    let shown = format!("Auto-allowed: {}", crate::sessions::shorten(&entry.what, 70));
+    let project = entry.project.clone();
     {
         let mut log = lock(&state.auto_log);
         log.entries.push(entry);
@@ -206,6 +214,7 @@ pub fn try_allow(app: &AppHandle, payload: &Value) -> bool {
         }
     }
     lock(&state.ui).auto_count += 1;
+    state::toast(app, "done", shown, project, 4);
     true
 }
 

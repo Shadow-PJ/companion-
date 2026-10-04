@@ -2,11 +2,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod actions;
+mod alerts;
 mod applog;
 mod autoallow;
 mod briefing;
 mod characters;
 mod chat;
+mod clipboard;
 mod codex_hooks_installer;
 mod commands;
 mod detective;
@@ -14,10 +16,12 @@ mod dropzone;
 mod error_watch;
 mod gamemode;
 mod github;
+mod guard;
 mod health;
 mod hooks_installer;
 mod hotzone;
 mod learn;
+mod notify;
 mod limits;
 mod permissions;
 mod pet_window;
@@ -75,6 +79,7 @@ fn main() {
             tauri::async_runtime::spawn(pipe_server::run(handle.clone()));
             github::spawn(handle.clone()); // sleeps unless the CI check is turned on
             limits::refresh_now(&handle); // fresh Claude / Codex limit numbers at start
+            limits::resume(&handle); // still out of Claude usage? "back" alert at the reset
 
             let game_active = lock(&app.state::<AppState>().ui).game_active;
             hotzone::set_visible(!game_active);

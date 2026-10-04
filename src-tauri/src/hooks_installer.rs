@@ -23,7 +23,6 @@ pub const HOOK_EXE: &str = "glowby-hook.exe";
 /// wait for the hook: zero delay for you.
 const LISTEN_EVENTS: &[&str] = &[
     "SessionStart",
-    "UserPromptSubmit",
     "PreToolUse",
     "PostToolUse",
     "PostToolUseFailure",
@@ -34,6 +33,10 @@ const LISTEN_EVENTS: &[&str] = &[
 ];
 /// Events where Claude Code waits for Glowby's answer (Allow / Deny).
 const ANSWER_EVENTS: &[&str] = &["PermissionRequest"];
+/// Events Glowby answers at once, without asking you: the cold-chat guard
+/// (go, or stop a message that would re-send a big cold chat). The hook gives
+/// up after 3 seconds, so a slow or closed Glowby never holds your message.
+const QUICK_EVENTS: &[&str] = &["UserPromptSubmit"];
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -235,6 +238,9 @@ fn add_ours(root: &mut Value, hook: &str) {
     for event in ANSWER_EVENTS {
         add(event, json!({ "type": "command", "command": hook, "args": [event], "timeout": 600 }));
     }
+    for event in QUICK_EVENTS {
+        add(event, json!({ "type": "command", "command": hook, "args": [event], "timeout": 10 }));
+    }
 }
 
 fn pretty(value: &Value) -> String {
@@ -385,14 +391,17 @@ mod tests {
     }
 
     #[test]
-    fn only_the_permission_hook_makes_claude_wait() {
+    fn only_the_permission_and_prompt_hooks_make_claude_wait() {
         let mut v = json!({});
         add_ours(&mut v, HOOK);
         for (event, groups) in v["hooks"].as_object().unwrap() {
             let entry = &groups[0]["hooks"][0];
             assert_eq!(entry["args"][0], event.as_str());
             let waits = entry.get("async").and_then(Value::as_bool) != Some(true);
-            assert_eq!(waits, event == "PermissionRequest", "{event}");
+            assert_eq!(waits, event == "PermissionRequest" || event == "UserPromptSubmit", "{event}");
+            if event == "UserPromptSubmit" {
+                assert_eq!(entry["timeout"], 10, "the guard never holds a message long");
+            }
         }
     }
 }
@@ -427,12 +436,15 @@ pub fn status(app: &AppHandle) -> HooksStatus {
             .flatten()
             .filter(|e| is_ours(e))
             .collect();
+        // up to date = our current hook path, waiting (or not) the way this version needs
+        let want_async = LISTEN_EVENTS.contains(&event);
         let current = entries.iter().any(|e| {
             e.get("command").and_then(Value::as_str).map(str::to_ascii_lowercase).as_deref() == Some(hook_str.as_str())
+                && (e.get("async").and_then(Value::as_bool) == Some(true)) == want_async
         });
         (!entries.is_empty(), current)
     };
-    let all: Vec<(bool, bool)> = LISTEN_EVENTS.iter().chain(ANSWER_EVENTS).map(|e| ours_for(e)).collect();
+    let all: Vec<(bool, bool)> = LISTEN_EVENTS.iter().chain(ANSWER_EVENTS).chain(QUICK_EVENTS).map(|e| ours_for(e)).collect();
     if all.iter().all(|(_, current)| *current) && hook.is_file() {
         out.state = "installed";
         if root.get("statusLine").is_none() {
@@ -441,7 +453,7 @@ pub fn status(app: &AppHandle) -> HooksStatus {
         }
     } else if all.iter().any(|(any, _)| *any) {
         out.state = "outdated";
-        out.detail = Some("Some Glowby hooks are missing or point to an old location. Update them.".into());
+        out.detail = Some("Update to turn on the newest features (like the cold-chat guard), or because some hooks point to an old location.".into());
     }
     out
 }

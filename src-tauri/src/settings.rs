@@ -33,6 +33,20 @@ pub struct Settings {
     pub auto_allow: AutoAllowSettings,
     pub limits: LimitsSettings,
     pub detective: DetectiveSettings,
+    pub alerts: AlertSettings,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AlertSettings {
+    /// Important alerts (usage limits, a stopped message) also as a Windows notification.
+    pub windows_notifications: bool,
+}
+
+impl Default for AlertSettings {
+    fn default() -> Self {
+        Self { windows_notifications: true }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -42,13 +56,20 @@ pub struct DetectiveSettings {
     pub enabled: bool,
     /// A case report on your first activity each week.
     pub weekly: bool,
-    /// "Your cache goes cold in a minute" (needs Glowby's status line).
+    /// "Reply by 14:32 to keep this chat cheap" before a big chat's cache goes cold.
     pub cache_reminder: bool,
+    /// Stop a message to a big chat whose cache went cold (once; send again to go ahead).
+    pub guard: bool,
+    /// What counts as a big chat for the guard and the reminder (tokens).
+    pub guard_min_tokens: u64,
+    /// Suggest a fresh chat (with a ready note) when a chat gets very long.
+    pub big_chat: bool,
+    pub big_chat_tokens: u64,
 }
 
 impl Default for DetectiveSettings {
     fn default() -> Self {
-        Self { enabled: true, weekly: true, cache_reminder: true }
+        Self { enabled: true, weekly: true, cache_reminder: true, guard: true, guard_min_tokens: 150_000, big_chat: true, big_chat_tokens: 400_000 }
     }
 }
 
@@ -356,6 +377,7 @@ impl Default for Settings {
             auto_allow: AutoAllowSettings::default(),
             limits: LimitsSettings::default(),
             detective: DetectiveSettings::default(),
+            alerts: AlertSettings::default(),
         }
     }
 }
@@ -405,6 +427,8 @@ impl Settings {
         self.github.every_mins = self.github.every_mins.clamp(5, 180);
         self.squad.max_shown = self.squad.max_shown.clamp(1, 6);
         self.limits.warn_percent = self.limits.warn_percent.clamp(50, 98);
+        self.detective.guard_min_tokens = self.detective.guard_min_tokens.clamp(50_000, 2_000_000);
+        self.detective.big_chat_tokens = self.detective.big_chat_tokens.clamp(100_000, 2_000_000);
         self.auto_allow.never = self.auto_allow.never.iter().map(|r| r.trim().chars().take(120).collect::<String>()).filter(|r| !r.is_empty()).take(200).collect();
         let mut seen = std::collections::HashSet::new();
         self.quick_actions.actions.truncate(20);

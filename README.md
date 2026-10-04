@@ -9,14 +9,15 @@
 
 A small glowing jellyfish that lives at the top edge of your screen and keeps you
 company while [Claude Code](https://claude.com/claude-code) and Codex work. It shows what
-your agents are doing, lets you answer their permission questions with one click, warns you
-before you run out of AI usage, finds what wastes your tokens, and levels up as you code.
+your agents are doing, lets you answer their permission questions with one click, stops
+messages that would waste your AI usage, tells you the moment a limit hits (and when it's
+back), and levels up as you code.
 
 Glowby hides at the top edge and slides out when you hover there. He's drawn entirely
 in code (no image files), uses about 60 MB of RAM and ~0% CPU while hidden, and never
 sends your data anywhere.
 
-> **Early version (v0.4).** Glowby is new and improving every week, so expect rough edges.
+> **Early version (v0.5).** Glowby is new and improving every week, so expect rough edges.
 > Ideas and bug reports are very welcome: [open an issue](https://github.com/Shadow-PJ/glowby/issues).
 
 ## Download
@@ -64,19 +65,30 @@ their normal prompt, so they're never blocked.
   Allow for you. Risky things still ask: deleting files, `git push`, `reset --hard`,
   installing software, downloads, and file changes outside the project (your
   **never-auto list** in Settings). A quiet log in Settings lists everything that was
-  auto-allowed.
+  auto-allowed. (A chat in Claude's own **Auto** mode never asks, so there's nothing
+  to allow there; Glowby tells you when that's the case.)
 * **AI limits:** right-click Glowby → **AI limits** shows how much of your Claude (5-hour
   and weekly) and Codex limits you've used, when they reset, and a rough "you may run low
-  in …" guess. When a limit gets tight, Glowby suggests saving a handoff note or switching
-  to the other agent. Numbers are read on your PC: Codex's from its own logs, Claude's
-  from Claude Code's status line (or estimated from your local token counts). They can be
-  a few minutes old, and the forecast is only a guess from your recent pace.
+  in …" guess. When a limit gets tight, Glowby jumps out with a free handoff note for the
+  other agent. The moment Claude hits a limit, Glowby tells you the exact time it's back,
+  and tells you again when it is. Numbers are read on your PC: Codex's from its own logs,
+  Claude's from Claude Code's status line in terminal sessions. (The Claude app doesn't
+  share percentages, and claude.ai chats use the same limit, so there Glowby shows a token
+  count instead of guessing.)
+* **Saves your usage automatically:** a big chat whose cache has gone cold re-sends the
+  whole conversation with your next message. One such message can eat a 5-hour limit.
+  Glowby **stops that message once** and puts a fresh-start note with your message on
+  the clipboard: paste it into a new chat, or send again to go ahead anyway. He also pops
+  out two minutes before a big chat goes cold, and offers a fresh start when a chat gets
+  very long. The note is built on your PC from the chat log (no AI, no tokens).
+* **Alerts you can't miss:** for limits and stopped messages Glowby jumps out with a
+  sound, nudges you again if you didn't see it, and sends a Windows notification
+  (Settings can turn that off).
 * **Token detective:** once a week Glowby puts on his detective hat 🔍 and shows a case
   report of what ate your Claude limits: cache rebuilds after breaks (measured against
   your real cache lifetime), files Claude re-read without changes, and sessions that got
   expensive because they ran long. Each finding has a tip and its share of your week.
-  He also reminds you a minute before a chat's cache goes cold. It reads only numbers,
-  times, tool names and file paths from your local logs, never your messages.
+  The report reads only numbers, times, tool names and file paths from your local logs.
   `detective-report` prints the same report in a terminal.
 * **Moods:** working, happy when a task is done, alert when Claude needs you, sick while
   your tests or build fail, sleepy when it's quiet.
@@ -124,7 +136,11 @@ while a fullscreen game runs.
   Glowby itself only goes online for the optional GitHub CI check; chat and learn mode
   go through Claude Code with your own login.
 * **Claude Code is never blocked.** The hooks "fail open": if Glowby is closed or
-  crashes, Claude Code works exactly as if Glowby didn't exist.
+  crashes, Claude Code works exactly as if Glowby didn't exist. The only thing Glowby ever
+  stops on purpose is a message to a big cold chat (once, with the reason shown, and you
+  can turn it off). If Glowby doesn't answer within 3 seconds, the message goes through.
+* The fresh-start note uses your recent requests and the last answer from the chat log,
+  only on your PC and only onto your clipboard.
 * **Your Claude settings are changed only after you see the diff**, with a backup first.
   **Uninstall hooks** removes only Glowby's entries.
 * A GitHub token (only if you use the CI check) is kept in Windows Credential Manager,
@@ -136,7 +152,8 @@ while a fullscreen game runs.
 1. Settings → **Uninstall hooks…** → **Apply**.
 2. Quit Glowby (tray icon → Quit) and delete `Glowby.exe`.
 3. Optional, to remove your data too: delete `%APPDATA%\dev.glowby.app`,
-   `%LOCALAPPDATA%\Glowby` and `%LOCALAPPDATA%\dev.glowby.app`.
+   `%LOCALAPPDATA%\Glowby` and `%LOCALAPPDATA%\dev.glowby.app`, and remove Glowby's
+   notification name: `reg delete HKCU\Software\Classes\AppUserModelId\Shadow-PJ.Glowby /f`.
 
 ## Troubleshooting
 

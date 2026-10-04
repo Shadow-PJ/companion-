@@ -2,6 +2,9 @@
 //!
 //! Usage (from ~/.claude/settings.json, "exec form", no shell involved):
 //!     glowby-hook.exe <EventName>        with the event JSON on stdin
+//!                                        (PermissionRequest waits for your answer;
+//!                                        UserPromptSubmit waits a moment for Glowby's
+//!                                        cold-chat guard: go, or stop once)
 //!     glowby-hook.exe StatusLine         as Claude Code's status line: prints a short
 //!                                        line and passes your usage limits to Glowby
 //!
@@ -22,6 +25,10 @@ use std::time::{Duration, Instant};
 const CONNECT_BUDGET: Duration = Duration::from_millis(150);
 /// Hard cap on waiting for a permission answer. Glowby answers or passes well before this.
 const MAX_DECISION_WAIT: Duration = Duration::from_secs(590);
+/// The cold-chat guard answers at once (no person involved); if it doesn't, your
+/// message goes through as if Glowby weren't there.
+const MAX_PROMPT_WAIT: Duration = Duration::from_secs(3);
+const PROMPT_EVENT: &str = "UserPromptSubmit";
 /// Ignore absurdly large inputs instead of loading them all into memory.
 const MAX_STDIN_BYTES: u64 = 16 * 1024 * 1024;
 /// Long strings (file contents in Write/Edit calls) are cut to this many bytes.
@@ -62,7 +69,7 @@ fn run() -> Option<String> {
         debug("no event name argument");
         return None;
     };
-    let wants_reply = event == "PermissionRequest" || event == CHAT_GATE_EVENT;
+    let wants_reply = event == "PermissionRequest" || event == CHAT_GATE_EVENT || event == PROMPT_EVENT;
 
     let mut payload = match read_one_json_value() {
         Ok(v) => v,
@@ -89,7 +96,7 @@ fn run() -> Option<String> {
     if !wants_reply {
         return None;
     }
-    let reply = wait_for_reply(pipe)?;
+    let reply = wait_for_reply(pipe, if event == PROMPT_EVENT { MAX_PROMPT_WAIT } else { MAX_DECISION_WAIT })?;
     render_reply(&event, reply)
 }
 
@@ -187,14 +194,14 @@ fn server_is_trusted(_pipe: &File) -> bool {
 /// Blocking reads on a pipe have no timeout on Windows, so a helper thread does
 /// the read while we wait with a deadline. If Glowby closes or crashes, the read
 /// fails at once and we fall back to "no opinion".
-fn wait_for_reply(pipe: File) -> Option<HookReply> {
+fn wait_for_reply(pipe: File, deadline: Duration) -> Option<HookReply> {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
         let mut line = String::new();
         let ok = BufReader::new(pipe).read_line(&mut line).map(|n| n > 0).unwrap_or(false);
         let _ = tx.send(if ok { serde_json::from_str::<HookReply>(line.trim()).ok() } else { None });
     });
-    rx.recv_timeout(MAX_DECISION_WAIT).ok().flatten()
+    rx.recv_timeout(deadline).ok().flatten()
 }
 
 /// Turns Glowby's answer into the exact JSON Claude Code expects on stdout.
@@ -227,6 +234,8 @@ fn render_reply(event: &str, reply: HookReply) -> Option<String> {
                 "permissionDecisionReason": message
             }
         }),
+        // the cold-chat guard: this message isn't sent, you see the reason
+        (PROMPT_EVENT, HookReply::Deny { message }) => json!({ "decision": "block", "reason": message }),
         _ => return None,
     };
     serde_json::to_string(&value).ok()
@@ -285,6 +294,15 @@ mod tests {
         });
         assert_eq!(status_text(&full), "Glowby · Opus · ctx 12% · 5h 24% · week 41%");
         assert_eq!(status_text(&json!({})), "Glowby", "no data: still prints a line");
+    }
+
+    #[test]
+    fn the_guard_blocks_a_prompt_in_claude_code_format() {
+        let v = parse(render_reply(PROMPT_EVENT, HookReply::Deny { message: "cold".into() }));
+        assert_eq!(v["decision"], "block");
+        assert_eq!(v["reason"], "cold");
+        assert!(render_reply(PROMPT_EVENT, HookReply::Pass).is_none());
+        assert!(render_reply(PROMPT_EVENT, HookReply::Allow).is_none(), "allow = no opinion");
     }
 
     #[test]
