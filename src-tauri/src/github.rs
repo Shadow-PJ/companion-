@@ -178,7 +178,7 @@ async fn repos(app: &AppHandle) -> Vec<RepoInfo> {
 /// One HTTPS request to the GitHub API (blocking, so it runs on a worker thread).
 fn latest_run(token: &str, slug: &str, branch: &str) -> Result<Option<Value>, String> {
     let url = format!("https://api.github.com/repos/{slug}/actions/runs");
-    let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(20))).build().into();
+    let agent: ureq::Agent = ureq::Agent::config_builder().tls_config(ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build()).timeout_global(Some(Duration::from_secs(20))).build().into();
     let mut response = agent
         .get(&url)
         // .query() percent-encodes, so branch names with & or # stay intact

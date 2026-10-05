@@ -329,13 +329,20 @@ fn begin_gate(app: &AppHandle, envelope: &HookEnvelope) -> Gate {
 }
 
 /// Sends your answer to the waiting hook.
-pub fn resolve(app: &AppHandle, id: u64, reply: HookReply) {
+pub fn resolve(app: &AppHandle, id: u64, reply: HookReply) -> bool {
     let state = app.state::<AppState>();
-    let session = lock(&state.perms).resolve(id, reply);
+    let (session, delivered) = {
+        let mut queue = lock(&state.perms);
+        let session = queue.session_id(id);
+        let delivered = queue.resolve(id, reply).is_some();
+        (session, delivered)
+    };
     if let Some(session) = session {
+        // The question is no longer waiting even if its hook disconnected.
         lock(&state.tracker).permission_answered(&session);
         state::publish(app);
     }
+    delivered
 }
 
 fn abandon_gate(app: &AppHandle, id: u64) {

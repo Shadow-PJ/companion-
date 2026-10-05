@@ -2,6 +2,8 @@
 /target/
 /dist/
 /node_modules/
+src/pulse/preview-live.json
+
 /src-tauri/gen/
 # Generated from code by scripts/gen-icons.mjs (npm run icons), never hand-made images
 /src-tauri/icons/
@@ -12,3 +14,4 @@
 Thumbs.db
 .vscode/*
 !.vscode/extensions.json
+/Glowby.exe

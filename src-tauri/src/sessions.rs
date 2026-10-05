@@ -45,6 +45,8 @@ pub enum Phase {
 }
 
 pub struct Session {
+    pub agent: &'static str,
+    pub last_hook: Option<Instant>,
     pub project: String,
     pub cwd: String,
     pub phase: Phase,
@@ -95,6 +97,7 @@ pub struct Tracker {
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct StatusView {
+    pub agent: &'static str,
     pub project: String,
     pub activity: String,
     pub phase: Phase,
@@ -122,6 +125,8 @@ impl Tracker {
         let cwd = str_field(p, "cwd").unwrap_or("").to_string();
         let project = project_name(&cwd);
         let session = self.sessions.entry(id).or_insert_with(|| Session {
+            agent: agent_of(p),
+            last_hook: Some(now),
             project: project.clone(),
             cwd: cwd.clone(),
             phase: Phase::Idle,
@@ -145,6 +150,8 @@ impl Tracker {
             session.project = project;
             session.cwd = cwd;
         }
+        session.agent = if p.get("_glowby_agent").is_some() || p.get("turn_id").is_some() || p.get("transcript_path").is_some() { agent_of(p) } else { session.agent };
+        session.last_hook = Some(now);
         session.last_event = now;
         session.from_pet_chat |= from_pet_chat;
 
@@ -261,12 +268,28 @@ impl Tracker {
         let live: Vec<&Session> = self.live(now).collect();
         let latest = live.iter().max_by_key(|s| s.last_event)?;
         Some(StatusView {
+            agent: latest.agent,
             project: latest.project.clone(),
             activity: latest.activity.clone(),
             phase: latest.phase,
             from_pet_chat: latest.from_pet_chat,
             others: live.len().saturating_sub(1),
         })
+    }
+
+    /// Latest agent with real activity, excluding Glowby's own chat.
+    pub fn latest_agent(&self) -> &'static str {
+        self.sessions.values().filter(|s| !s.from_pet_chat && s.last_event.elapsed() < STALE_AFTER * 6).max_by_key(|s| s.last_event).map_or("claude", |s| s.agent)
+    }
+
+    pub fn session_agent(&self, id: &str) -> Option<&'static str> { self.sessions.get(id).map(|s| s.agent) }
+
+    /// Log activity is a fallback only; recent hooks are authoritative.
+    pub fn apply_log(&mut self, event: &str, payload: &Value) {
+        let id = str_field(payload, "session_id").unwrap_or("");
+        if self.sessions.get(id).and_then(|s| s.last_hook).is_some_and(|t| t.elapsed() < Duration::from_secs(15)) { return; }
+        self.apply(event, payload, false);
+        if let Some(s) = self.sessions.get_mut(id) { s.last_hook = None; }
     }
 
     pub fn tools_this_turn(&self, session_id: &str) -> u32 {
@@ -284,6 +307,87 @@ impl Tracker {
 
     pub fn forget_stale(&mut self, now: Instant) {
         self.sessions.retain(|_, s| now.duration_since(s.last_event) < STALE_AFTER * 6);
+    }
+}
+
+/// The mood one session would give Glowby on its own.
+fn session_mood(s: &Session, now: Instant) -> Mood {
+    match s.phase {
+        Phase::NeedsYou => Mood::Alert,
+        Phase::Failed if now.duration_since(s.phase_since) < SICK_FOR => Mood::Sick,
+        Phase::Thinking | Phase::Working => Mood::Working,
+        Phase::Done if now.duration_since(s.phase_since) < HAPPY_FOR => Mood::Happy,
+        _ => Mood::Idle,
+    }
+}
+
+/// "codex" or "claude": Codex events carry a `turn_id` and keep their
+/// transcripts under ~/.codex; everything else is Claude Code.
+pub fn agent_of(p: &Value) -> &'static str {
+    if let Some(agent) = str_field(p, "_glowby_agent").filter(|a| *a == "codex" || *a == "claude") { return if agent == "codex" { "codex" } else { "claude" }; }
+    let codex_log = str_field(p, "transcript_path").is_some_and(|t| {
+        let t = t.to_ascii_lowercase().replace('/', "\\");
+        t.contains("\\.codex\\")
+    });
+    if p.get("turn_id").is_some() || codex_log { "codex" } else { "claude" }
+}
+
+pub fn str_field<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
+    v.get(key).and_then(Value::as_str)
+}
+
+pub fn project_name(cwd: &str) -> String {
+    cwd.trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("")
+        .to_string()
+}
+
+fn file_name(path: &str) -> &str {
+    path.rsplit(['/', '\\']).next().unwrap_or(path)
+}
+
+pub fn first_line(text: &str, max_chars: usize) -> String {
+    let line = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+    shorten(line, max_chars)
+}
+
+pub fn shorten(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        text.to_string()
+    } else {
+        let cut: String = text.chars().take(max_chars.saturating_sub(1)).collect();
+        format!("{cut}…")
+    }
+}
+
+/// "Edit" + {file_path: "src/main.rs"}  ->  "Editing main.rs"
+pub fn describe_tool(p: &Value) -> String {
+    let tool = str_field(p, "tool_name").unwrap_or("a tool");
+    let input = p.get("tool_input").cloned().unwrap_or(Value::Null);
+    let path = ["file_path", "notebook_path", "path"]
+        .iter()
+        .find_map(|k| str_field(&input, k))
+        .map(file_name)
+        .unwrap_or("a file");
+    match tool {
+        "Read" | "NotebookRead" => format!("Reading {path}"),
+        "Edit" | "MultiEdit" | "NotebookEdit" => format!("Editing {path}"),
+        "Write" => format!("Writing {path}"),
+        "Glob" | "Grep" | "LS" => "Searching the code".into(),
+        "Bash" | "PowerShell" => {
+            let cmd = str_field(&input, "command").unwrap_or("");
+            format!("Running {}", first_line(cmd, 48))
+        }
+        "WebFetch" | "WebSearch" => "Browsing the web".into(),
+        "Task" | "Agent" => "Working with a helper agent".into(),
+        "TodoWrite" | "TaskCreate" | "TaskUpdate" => "Planning".into(),
+        t if t.starts_with("mcp__") => {
+            let server = t.split("__").nth(1).unwrap_or("an MCP");
+            format!("Using {server} tools")
+        }
+        other => format!("Using {other}"),
     }
 }
 
@@ -352,6 +456,18 @@ mod tests {
     }
 
     #[test]
+    fn active_agent_switches_and_log_fallback_keeps_recent_hooks() {
+        let mut t = Tracker::new();
+        t.apply("UserPromptSubmit", &json!({"session_id":"codex-session","cwd":"C:/code","turn_id":"t"}), false);
+        assert_eq!(t.latest_agent(), "codex");
+        assert_eq!(t.status(Instant::now()).unwrap().agent, "codex");
+        t.apply_log("Stop", &json!({"session_id":"codex-session","cwd":"C:/code","_glowby_agent":"codex"}));
+        assert_eq!(t.status(Instant::now()).unwrap().phase, Phase::Thinking);
+        t.apply("UserPromptSubmit", &json!({"session_id":"claude-session","cwd":"C:/code","_glowby_agent":"claude"}), false);
+        assert_eq!(t.latest_agent(), "claude");
+    }
+
+    #[test]
     fn codex_and_claude_events_are_told_apart() {
         assert_eq!(agent_of(&json!({ "session_id": "a", "turn_id": "t1" })), "codex");
         assert_eq!(agent_of(&json!({ "transcript_path": r"C:\Users\me\.codex\sessions\2026\x.jsonl" })), "codex");
@@ -365,85 +481,5 @@ mod tests {
         ev(&mut t, "UserPromptSubmit", json!({}));
         ev(&mut t, "SessionEnd", json!({}));
         assert!(t.status(Instant::now()).is_none());
-    }
-}
-
-/// The mood one session would give Glowby on its own.
-fn session_mood(s: &Session, now: Instant) -> Mood {
-    match s.phase {
-        Phase::NeedsYou => Mood::Alert,
-        Phase::Failed if now.duration_since(s.phase_since) < SICK_FOR => Mood::Sick,
-        Phase::Thinking | Phase::Working => Mood::Working,
-        Phase::Done if now.duration_since(s.phase_since) < HAPPY_FOR => Mood::Happy,
-        _ => Mood::Idle,
-    }
-}
-
-/// "codex" or "claude": Codex events carry a `turn_id` and keep their
-/// transcripts under ~/.codex; everything else is Claude Code.
-pub fn agent_of(p: &Value) -> &'static str {
-    let codex_log = str_field(p, "transcript_path").is_some_and(|t| {
-        let t = t.to_ascii_lowercase().replace('/', "\\");
-        t.contains("\\.codex\\")
-    });
-    if p.get("turn_id").is_some() || codex_log { "codex" } else { "claude" }
-}
-
-pub fn str_field<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
-    v.get(key).and_then(Value::as_str)
-}
-
-pub fn project_name(cwd: &str) -> String {
-    cwd.trim_end_matches(['/', '\\'])
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or("")
-        .to_string()
-}
-
-fn file_name(path: &str) -> &str {
-    path.rsplit(['/', '\\']).next().unwrap_or(path)
-}
-
-pub fn first_line(text: &str, max_chars: usize) -> String {
-    let line = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
-    shorten(line, max_chars)
-}
-
-pub fn shorten(text: &str, max_chars: usize) -> String {
-    if text.chars().count() <= max_chars {
-        text.to_string()
-    } else {
-        let cut: String = text.chars().take(max_chars.saturating_sub(1)).collect();
-        format!("{cut}…")
-    }
-}
-
-/// "Edit" + {file_path: "src/main.rs"}  ->  "Editing main.rs"
-pub fn describe_tool(p: &Value) -> String {
-    let tool = str_field(p, "tool_name").unwrap_or("a tool");
-    let input = p.get("tool_input").cloned().unwrap_or(Value::Null);
-    let path = ["file_path", "notebook_path", "path"]
-        .iter()
-        .find_map(|k| str_field(&input, k))
-        .map(file_name)
-        .unwrap_or("a file");
-    match tool {
-        "Read" | "NotebookRead" => format!("Reading {path}"),
-        "Edit" | "MultiEdit" | "NotebookEdit" => format!("Editing {path}"),
-        "Write" => format!("Writing {path}"),
-        "Glob" | "Grep" | "LS" => "Searching the code".into(),
-        "Bash" | "PowerShell" => {
-            let cmd = str_field(&input, "command").unwrap_or("");
-            format!("Running {}", first_line(cmd, 48))
-        }
-        "WebFetch" | "WebSearch" => "Browsing the web".into(),
-        "Task" | "Agent" => "Working with a helper agent".into(),
-        "TodoWrite" | "TaskCreate" | "TaskUpdate" => "Planning".into(),
-        t if t.starts_with("mcp__") => {
-            let server = t.split("__").nth(1).unwrap_or("an MCP");
-            format!("Using {server} tools")
-        }
-        other => format!("Using {other}"),
     }
 }

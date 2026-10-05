@@ -1,8 +1,8 @@
 {
   "name": "glowby",
   "private": true,
-  "version": "0.5.0",
-  "description": "Glowby, a desktop companion pet for Claude Code",
+  "version": "0.6.0",
+  "description": "Glowby, a desktop companion for Claude Code and Codex with a personal AI news desk",
   "author": "Shadow-PJ",
   "license": "MIT",
   "repository": "github:Shadow-PJ/glowby",
@@ -15,7 +15,8 @@
     "dev": "npm run icons && npm run hook && tauri dev",
     "release": "npm run icons && cargo build --release -p glowby-hook && tauri build --no-bundle",
     "typecheck": "tsc --noEmit",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test:pulse": "node --experimental-strip-types scripts/test-pulse.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.1",

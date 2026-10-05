@@ -8,6 +8,7 @@ import { playSound } from "../pet/sound";
 import { button, compact, el } from "../shared/dom";
 import type { AppInfo, AutoAllowEntry, CharacterInfo, ChatMode, CosmeticView, LimitsView, GithubStatus, HooksPreview, HooksStatus, Look, MonitorInfo, ProgressInfo, Settings } from "../shared/types";
 import { crop, nameFromFile } from "./cropper";
+import type { View as PulseView, Preferences as PulsePreferences } from "../pulse/types";
 
 const app = document.getElementById("app")!;
 let settings: Settings;
@@ -496,15 +497,16 @@ function chatSection(info: AppInfo) {
   });
   return section(
     "Chat",
-    "Click Glowby to send a message to Claude Code (non-interactive mode) in your project folder, using your normal Claude login.",
+    "Click Glowby to chat with the agent you are using. Auto follows recent Claude Code or Codex activity and uses your existing login. Conversations stay separate for each agent and project. Codex Ask mode is read-only; choose Accept edits to grant project write access.",
     toggle("Chat", null, () => settings.chat.enabled, (v) => (settings.chat.enabled = v)),
+    select<"auto" | "claude" | "codex">("Chat agent", "Auto switches with your latest active session.", [["auto", "Auto · follow my active agent"], ["claude", "Claude Code"], ["codex", "Codex"]], () => settings.chat.agent, v => settings.chat.agent = v),
     row("Project folder", "Only use folders you trust.", el("span", { class: "inline grow" }, folder, browse)),
     select<ChatMode>(
       "What chat may do",
       null,
       [
-        ["ask", "Ask me on Glowby before edits and commands"],
-        ["acceptEdits", "Edit files freely, ask before commands"],
+        ["ask", "Claude asks on Glowby · Codex reads only"],
+        ["acceptEdits", "Allow project edits · commands follow agent permissions"],
         ["readOnly", "Read only (plan mode)"],
       ],
       () => settings.chat.mode,
@@ -1054,10 +1056,25 @@ function moodsSection() {
   );
 }
 
+async function pulseSection() {
+  const loaded = await invoke<PulseView>("pulse_view");
+  const prefs = loaded.preferences;
+  const persist = (key: "enabled" | "background", value: boolean) => {
+    prefs[key] = value;
+    void invoke<PulsePreferences>("pulse_preferences", { patch: { [key]: value } }).catch(e => { status.textContent = String(e); status.className = "message error"; });
+  };
+  const status = el("p", { class: "message", role: "status" });
+  return section("AI Pulse", "A clean workspace for AI news, sourced model comparisons and tools. Public news checks happen when you use the hub; background checks are optional and never upload your projects or searches.",
+    toggle("Enable AI Pulse", null, () => prefs.enabled, v => persist("enabled", v)),
+    toggle("Background news checks", "Off by default. Check public sources every few hours; manage follows and alerts inside AI Pulse.", () => prefs.background, v => persist("background", v)),
+    el("div", { class: "actions" }, button("Open AI Pulse", "primary", () => void invoke("pulse_open").catch(e => { status.textContent = String(e); status.className = "message error"; }))), status
+  );
+}
+
 function privacySection(info: AppInfo) {
   return section(
     "Privacy and data",
-    "Glowby sends nothing anywhere. Your settings, backups, and chat session IDs live only in this folder. (The chat itself talks to Anthropic through Claude Code, as Claude Code always does.)",
+    "Settings, backups, bookmarks and session IDs stay on your PC. AI Pulse fetches public news and benchmarks when used or when you enable background checks. Chat uses your selected agent’s service; optional GitHub CI contacts GitHub. No telemetry or project uploads from AI Pulse.",
     el("div", { class: "inline" }, el("code", { text: info.dataDir }), button("Open data folder", "ghost", () => void invoke("open_folder", { which: "data" }))),
     info.pipeError ? el("p", { class: "message error", text: info.pipeError }) : null,
     el("p", { class: "hint", text: `Version ${info.version}.` }),
@@ -1078,6 +1095,7 @@ async function main() {
   characters = chars;
   app.replaceChildren(
     quickConnectSection(),
+    await pulseSection(),
     hooksSection(
       "Connect to Claude Code",
       "Glowby listens through hooks in your Claude Code settings. Hooks fail open: if Glowby is closed or crashes, Claude Code keeps working normally.",

@@ -241,6 +241,28 @@ fn render_reply(event: &str, reply: HookReply) -> Option<String> {
     serde_json::to_string(&value).ok()
 }
 
+/// Keeps pipe traffic and Glowby's memory small. Keeps the START and the END of
+/// long strings: errors and test summaries are usually at the end of the output.
+fn trim_long_strings(value: &mut Value) {
+    match value {
+        Value::String(s) if s.len() > MAX_STRING_BYTES => {
+            let half = MAX_STRING_BYTES / 2;
+            let mut head_end = half;
+            while !s.is_char_boundary(head_end) {
+                head_end -= 1;
+            }
+            let mut tail_start = s.len() - half;
+            while !s.is_char_boundary(tail_start) {
+                tail_start += 1;
+            }
+            *s = format!("{}\n…[trimmed]…\n{}", &s[..head_end], &s[tail_start..]);
+        }
+        Value::Array(items) => items.iter_mut().for_each(trim_long_strings),
+        Value::Object(map) => map.values_mut().for_each(trim_long_strings),
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -320,27 +342,5 @@ mod tests {
         let s = v["content"].as_str().unwrap();
         assert!(s.len() < MAX_STRING_BYTES + 40);
         assert!(s.starts_with("START") && s.ends_with("END") && s.contains("[trimmed]"));
-    }
-}
-
-/// Keeps pipe traffic and Glowby's memory small. Keeps the START and the END of
-/// long strings: errors and test summaries are usually at the end of the output.
-fn trim_long_strings(value: &mut Value) {
-    match value {
-        Value::String(s) if s.len() > MAX_STRING_BYTES => {
-            let half = MAX_STRING_BYTES / 2;
-            let mut head_end = half;
-            while !s.is_char_boundary(head_end) {
-                head_end -= 1;
-            }
-            let mut tail_start = s.len() - half;
-            while !s.is_char_boundary(tail_start) {
-                tail_start += 1;
-            }
-            *s = format!("{}\n…[trimmed]…\n{}", &s[..head_end], &s[tail_start..]);
-        }
-        Value::Array(items) => items.iter_mut().for_each(trim_long_strings),
-        Value::Object(map) => map.values_mut().for_each(trim_long_strings),
-        _ => {}
     }
 }

@@ -25,13 +25,22 @@ pub fn set_hit_regions(app: AppHandle, regions: Vec<Rect>) {
 }
 
 #[tauri::command]
-pub fn answer_permission(app: AppHandle, id: u64, choice: String) {
+pub fn answer_permission(app: AppHandle, id: u64, choice: String) -> Result<(), String> {
     let reply = match choice.as_str() {
         "allow" => HookReply::Allow,
         "deny" => HookReply::Deny { message: "You denied this in Glowby.".into() },
         _ => HookReply::Pass, // "terminal": let Claude Code ask in the terminal
     };
-    pipe_server::resolve(&app, id, reply);
+    if pipe_server::resolve(&app, id, reply) {
+        crate::applog::debug(format!("permission {id}: {choice} delivered to waiting hook"));
+        state::toast(&app, "done", match choice.as_str() { "allow" => "Allow sent. Waiting for the agent to continue.", "deny" => "Deny sent to the agent.", _ => "The agent will show its own permission prompt." }.into(), String::new(), 6);
+        state::publish(&app);
+        Ok(())
+    } else {
+        state::toast(&app, "error", "This permission question expired or was answered elsewhere. Check your agent for its current prompt.".into(), String::new(), 10);
+        state::publish(&app);
+        Err("This question expired or was answered in the agent. Check Claude Code or Codex for the current prompt.".into())
+    }
 }
 
 #[tauri::command]
@@ -414,7 +423,7 @@ pub fn list_monitors(app: AppHandle) -> Vec<MonitorInfo> {
 #[tauri::command]
 pub fn hooks_status(app: AppHandle) -> HooksStatus {
     let status = hooks_installer::status(&app);
-    lock(&app.state::<AppState>().ui).hooks_installed = matches!(status.state, "installed" | "outdated");
+    lock(&app.state::<AppState>().ui).hooks_installed = matches!(status.state, "installed" | "outdated") || matches!(crate::codex_hooks_installer::status(&app).state, "installed" | "outdated");
     status
 }
 
@@ -432,7 +441,9 @@ pub fn hooks_apply(app: AppHandle, install: bool, token: String) -> Result<Strin
 
 #[tauri::command]
 pub fn codex_hooks_status(app: AppHandle) -> HooksStatus {
-    crate::codex_hooks_installer::status(&app)
+    let status = crate::codex_hooks_installer::status(&app);
+    lock(&app.state::<AppState>().ui).hooks_installed = matches!(status.state, "installed" | "outdated") || matches!(hooks_installer::status(&app).state, "installed" | "outdated");
+    status
 }
 
 #[tauri::command]

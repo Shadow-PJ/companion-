@@ -353,6 +353,8 @@ pub struct ChatSettings {
     pub keep_conversation: bool,
     /// Override for claude.exe; empty = find it automatically.
     pub claude_path: String,
+    /// auto follows the most recently active agent; explicit choices are optional.
+    pub agent: String,
 }
 
 impl Default for Settings {
@@ -411,6 +413,7 @@ impl Default for ChatSettings {
             mode: ChatMode::Ask,
             keep_conversation: true,
             claude_path: String::new(),
+            agent: "auto".into(),
         }
     }
 }
@@ -418,6 +421,7 @@ impl Default for ChatSettings {
 impl Settings {
     /// Clamp values a hand-edited file could break.
     pub fn sanitized(mut self) -> Self {
+        if !["auto", "claude", "codex"].contains(&self.chat.agent.as_str()) { self.chat.agent = "auto".into(); }
         self.pet.position = self.pet.position.clamp(0.0, 1.0);
         self.permissions.timeout_secs = self.permissions.timeout_secs.clamp(5, 540);
         self.breaks.interval_mins = self.breaks.interval_mins.clamp(15, 240);

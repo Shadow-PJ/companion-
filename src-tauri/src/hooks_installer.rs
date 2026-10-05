@@ -323,6 +323,58 @@ pub fn apply(app: &AppHandle, install: bool, token: &str) -> Result<String, Stri
     Ok(backup)
 }
 
+pub fn status(app: &AppHandle) -> HooksStatus {
+    let state = app.state::<AppState>();
+    let path = claude_settings_path(app);
+    let hook = installed_hook_path(app);
+    let mut out = HooksStatus {
+        state: "notInstalled",
+        detail: None,
+        settings_path: path.display().to_string(),
+        hook_path: hook.display().to_string(),
+        backups_dir: state.paths.backups_dir.display().to_string(),
+    };
+    let root = match read_settings(&path) {
+        Ok((_, root)) => root,
+        Err(e) => {
+            out.state = "error";
+            out.detail = Some(e);
+            return out;
+        }
+    };
+    let hook_str = hook.to_string_lossy().to_ascii_lowercase();
+    let ours_for = |event: &str| -> (bool, bool) {
+        let entries: Vec<&Value> = root
+            .pointer(&format!("/hooks/{event}"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|g| g.get("hooks").and_then(Value::as_array))
+            .flatten()
+            .filter(|e| is_ours(e))
+            .collect();
+        // up to date = our current hook path, waiting (or not) the way this version needs
+        let want_async = LISTEN_EVENTS.contains(&event);
+        let current = entries.iter().any(|e| {
+            e.get("command").and_then(Value::as_str).map(str::to_ascii_lowercase).as_deref() == Some(hook_str.as_str())
+                && (e.get("async").and_then(Value::as_bool) == Some(true)) == want_async
+        });
+        (!entries.is_empty(), current)
+    };
+    let all: Vec<(bool, bool)> = LISTEN_EVENTS.iter().chain(ANSWER_EVENTS).chain(QUICK_EVENTS).map(|e| ours_for(e)).collect();
+    if all.iter().all(|(_, current)| *current) && hook.is_file() {
+        out.state = "installed";
+        if root.get("statusLine").is_none() {
+            out.state = "outdated";
+            out.detail = Some("Update to let Glowby show your Claude usage limits (it adds Glowby as Claude Code's status line).".into());
+        }
+    } else if all.iter().any(|(any, _)| *any) {
+        out.state = "outdated";
+        out.detail = Some("Update to turn on the newest features (like the cold-chat guard), or because some hooks point to an old location.".into());
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -404,56 +456,4 @@ mod tests {
             }
         }
     }
-}
-
-pub fn status(app: &AppHandle) -> HooksStatus {
-    let state = app.state::<AppState>();
-    let path = claude_settings_path(app);
-    let hook = installed_hook_path(app);
-    let mut out = HooksStatus {
-        state: "notInstalled",
-        detail: None,
-        settings_path: path.display().to_string(),
-        hook_path: hook.display().to_string(),
-        backups_dir: state.paths.backups_dir.display().to_string(),
-    };
-    let root = match read_settings(&path) {
-        Ok((_, root)) => root,
-        Err(e) => {
-            out.state = "error";
-            out.detail = Some(e);
-            return out;
-        }
-    };
-    let hook_str = hook.to_string_lossy().to_ascii_lowercase();
-    let ours_for = |event: &str| -> (bool, bool) {
-        let entries: Vec<&Value> = root
-            .pointer(&format!("/hooks/{event}"))
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|g| g.get("hooks").and_then(Value::as_array))
-            .flatten()
-            .filter(|e| is_ours(e))
-            .collect();
-        // up to date = our current hook path, waiting (or not) the way this version needs
-        let want_async = LISTEN_EVENTS.contains(&event);
-        let current = entries.iter().any(|e| {
-            e.get("command").and_then(Value::as_str).map(str::to_ascii_lowercase).as_deref() == Some(hook_str.as_str())
-                && (e.get("async").and_then(Value::as_bool) == Some(true)) == want_async
-        });
-        (!entries.is_empty(), current)
-    };
-    let all: Vec<(bool, bool)> = LISTEN_EVENTS.iter().chain(ANSWER_EVENTS).chain(QUICK_EVENTS).map(|e| ours_for(e)).collect();
-    if all.iter().all(|(_, current)| *current) && hook.is_file() {
-        out.state = "installed";
-        if root.get("statusLine").is_none() {
-            out.state = "outdated";
-            out.detail = Some("Update to let Glowby show your Claude usage limits (it adds Glowby as Claude Code's status line).".into());
-        }
-    } else if all.iter().any(|(any, _)| *any) {
-        out.state = "outdated";
-        out.detail = Some("Update to turn on the newest features (like the cold-chat guard), or because some hooks point to an old location.".into());
-    }
-    out
 }

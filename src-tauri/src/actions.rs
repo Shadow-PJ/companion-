@@ -102,6 +102,11 @@ pub fn run_prompt_in(app: &AppHandle, folder: Option<String>, title: String, tem
 pub fn offer_choice(app: &AppHandle, choice: &str) {
     let state = app.state::<AppState>();
     let taken = lock(&state.ui).offer.take().map(|(offer, _)| offer);
+    if taken.as_ref().is_some_and(|o| o.kind != "limits") {
+        // Let a previously suppressed usage warning appear after this card is handled.
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move { tokio::task::yield_now().await; crate::limits::maybe_warn(&app); });
+    }
     if let Some(ci) = taken.as_ref().filter(|o| o.kind == "ci") {
         match choice {
             "open" => {

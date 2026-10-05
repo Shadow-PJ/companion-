@@ -1,0 +1,622 @@
+{
+  "models": [
+    {
+      "id": "gpt-6.1-sol",
+      "name": "GPT-6.1 Sol",
+      "company": "OpenAI",
+      "bestFor": "Complex coding with a lower API cost than Astra",
+      "inputPrice": 2,
+      "outputPrice": 10,
+      "context": 1050000,
+      "url": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+      "checked": "2026-10-05",
+      "released": "2026-09-29",
+      "tags": [
+        "Coding",
+        "Research",
+        "Agents"
+      ],
+      "note": "Standard API USD per million tokens. Extra tools, caching and long-context tiers can change the bill."
+    },
+    {
+      "id": "gpt-6-astra",
+      "name": "GPT-6 Astra",
+      "company": "OpenAI",
+      "bestFor": "Demanding reasoning, coding and professional tasks",
+      "inputPrice": 10,
+      "outputPrice": 50,
+      "context": 1050000,
+      "url": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+      "checked": "2026-10-05",
+      "released": "",
+      "tags": [
+        "Coding",
+        "Research",
+        "Agents"
+      ],
+      "note": "Standard API USD per million tokens. Extra tools, caching and long-context tiers can change the bill."
+    },
+    {
+      "id": "gpt-6-luna",
+      "name": "GPT-6 Luna",
+      "company": "OpenAI",
+      "bestFor": "Repeatable work where API cost matters",
+      "inputPrice": 0.1,
+      "outputPrice": 0.5,
+      "context": 1050000,
+      "url": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+      "checked": "2026-10-05",
+      "released": "",
+      "tags": [
+        "Coding",
+        "Research",
+        "Agents"
+      ],
+      "note": "Standard API USD per million tokens. Extra tools, caching and long-context tiers can change the bill."
+    },
+    {
+      "id": "claude-opus-5-5",
+      "name": "Claude Opus 5.5",
+      "company": "Anthropic",
+      "bestFor": "Long-running coding agents and knowledge work",
+      "inputPrice": 4,
+      "outputPrice": 20,
+      "context": 1000000,
+      "url": "https://platform.claude.com/docs/en/models/overview",
+      "checked": "2026-10-05",
+      "released": "",
+      "tags": [
+        "Coding",
+        "Research",
+        "Agents"
+      ],
+      "note": "Standard API USD per million tokens. Extra tools, caching and long-context tiers can change the bill."
+    },
+    {
+      "id": "claude-sonnet-5-5",
+      "name": "Claude Sonnet 5.5",
+      "company": "Anthropic",
+      "bestFor": "Everyday development with a speed and quality balance",
+      "inputPrice": 2,
+      "outputPrice": 10,
+      "context": 1000000,
+      "url": "https://platform.claude.com/docs/en/models/overview",
+      "checked": "2026-10-05",
+      "released": "2026-09-28",
+      "tags": [
+        "Coding",
+        "Research",
+        "Agents"
+      ],
+      "note": "Standard API USD per million tokens. Extra tools, caching and long-context tiers can change the bill."
+    },
+    {
+      "id": "claude-fable-5-1",
+      "name": "Claude Fable 5.1",
+      "company": "Anthropic",
+      "bestFor": "Extended reasoning and long-horizon agent work",
+      "inputPrice": 10,
+      "outputPrice": 50,
+      "context": 1000000,
+      "url": "https://platform.claude.com/docs/en/models/overview",
+      "checked": "2026-10-05",
+      "released": "",
+      "tags": [
+        "Coding",
+        "Research",
+        "Agents"
+      ],
+      "note": "Standard API USD per million tokens. Extra tools, caching and long-context tiers can change the bill."
+    },
+    {
+      "id": "claude-haiku-4-5",
+      "name": "Claude Haiku 4.5",
+      "company": "Anthropic",
+      "bestFor": "Quick responses and smaller development tasks",
+      "inputPrice": 1,
+      "outputPrice": 5,
+      "context": 200000,
+      "url": "https://platform.claude.com/docs/en/models/overview",
+      "checked": "2026-10-05",
+      "released": "",
+      "tags": [
+        "Coding",
+        "Research",
+        "Agents"
+      ],
+      "note": "Standard API USD per million tokens. Extra tools, caching and long-context tiers can change the bill."
+    },
+    {
+      "id": "gemini",
+      "name": "Gemini",
+      "company": "Google",
+      "bestFor": "Explore Google's multimodal model family",
+      "inputPrice": null,
+      "outputPrice": null,
+      "context": null,
+      "url": "https://ai.google.dev/gemini-api/docs/models",
+      "checked": "2026-10-05",
+      "released": "",
+      "tags": [
+        "Coding",
+        "Image",
+        "Video",
+        "Research"
+      ],
+      "note": "Standard API USD per million tokens. Extra tools, caching and long-context tiers can change the bill."
+    }
+  ],
+  "tools": [
+    {
+      "id": "cursor",
+      "name": "Cursor",
+      "company": "Cursor",
+      "bestFor": "AI-assisted development in an editor",
+      "description": "An editor with inline help, agents and project context for building software.",
+      "price": "Free Hobby · Pro $20/month",
+      "freeTier": true,
+      "categories": [
+        "Coding",
+        "Agents"
+      ],
+      "models": [
+        "Frontier models",
+        "Composer"
+      ],
+      "similar": [
+        "codex",
+        "claude-code",
+        "windsurf"
+      ],
+      "url": "https://cursor.com",
+      "pricingUrl": "https://cursor.com/pricing",
+      "checked": "2026-10-05"
+    },
+    {
+      "id": "codex",
+      "name": "Codex",
+      "company": "OpenAI",
+      "bestFor": "Delegating software tasks",
+      "description": "Work on code through the desktop app, CLI, IDE or cloud. Glowby follows local hook activity.",
+      "price": "Plan access or API billing · check current terms",
+      "freeTier": false,
+      "categories": [
+        "Coding",
+        "Agents"
+      ],
+      "models": [
+        "GPT"
+      ],
+      "similar": [
+        "claude-code",
+        "cursor"
+      ],
+      "url": "https://learn.chatgpt.com/docs/developer-commands?surface=cli",
+      "pricingUrl": "https://learn.chatgpt.com/docs/usage-and-cost",
+      "checked": "2026-10-05"
+    },
+    {
+      "id": "claude-code",
+      "name": "Claude Code",
+      "company": "Anthropic",
+      "bestFor": "Working with an agent in your project",
+      "description": "A coding agent that reads your project, edits files and runs commands. Glowby follows its hooks.",
+      "price": "Subscription or API billing",
+      "freeTier": false,
+      "categories": [
+        "Coding",
+        "Agents"
+      ],
+      "models": [
+        "Claude"
+      ],
+      "similar": [
+        "codex",
+        "cursor"
+      ],
+      "url": "https://claude.com/product/claude-code",
+      "pricingUrl": "https://claude.com/pricing",
+      "checked": "2026-10-05"
+    },
+    {
+      "id": "windsurf",
+      "name": "Windsurf / Devin",
+      "company": "Cognition",
+      "bestFor": "Agent-assisted software development",
+      "description": "Check the current product and plans: Windsurf's pricing page now redirects to Devin.",
+      "price": "See current plans",
+      "freeTier": false,
+      "categories": [
+        "Coding",
+        "Agents"
+      ],
+      "models": [
+        "Plan dependent"
+      ],
+      "similar": [
+        "cursor",
+        "codex"
+      ],
+      "url": "https://windsurf.com",
+      "pricingUrl": "https://devin.ai/pricing",
+      "checked": "2026-10-05"
+    },
+    {
+      "id": "chatgpt",
+      "name": "ChatGPT",
+      "company": "OpenAI",
+      "bestFor": "Writing, learning and general problem solving",
+      "description": "A conversational workspace for explanations, drafts, analysis and creative tasks.",
+      "price": "Free and paid plans",
+      "freeTier": true,
+      "categories": [
+        "Writing",
+        "Study",
+        "Data",
+        "Research",
+        "Image"
+      ],
+      "models": [
+        "GPT"
+      ],
+      "similar": [
+        "claude",
+        "gemini",
+        "perplexity"
+      ],
+      "url": "https://chatgpt.com",
+      "pricingUrl": "https://learn.chatgpt.com/docs/pricing",
+      "checked": "2026-10-05"
+    },
+    {
+      "id": "claude",
+      "name": "Claude",
+      "company": "Anthropic",
+      "bestFor": "Writing and working with long material",
+      "description": "Discuss documents, develop ideas and work through explanations in conversation.",
+      "price": "Free and paid plans",
+      "freeTier": true,
+      "categories": [
+        "Writing",
+        "Study",
+        "Research",
+        "Data"
+      ],
+      "models": [
+        "Claude"
+      ],
+      "similar": [
+        "chatgpt",
+        "gemini"
+      ],
+      "url": "https://claude.com",
+      "pricingUrl": "https://claude.com/pricing",
+      "checked": "2026-10-05"
+    },
+    {
+      "id": "gemini",
+      "name": "Gemini",
+      "company": "Google",
+      "bestFor": "Multimodal assistance",
+      "description": "Google's assistant for everyday questions and work with text, images and other media.",
+      "price": "Free and paid access · plan dependent",
+      "freeTier": true,
+      "categories": [
+        "Study",
+        "Writing",
+        "Image",
+        "Research"
+      ],
+      "models": [
+        "Gemini"
+      ],
+      "similar": [
+        "chatgpt",
+        "claude"
+      ],
+      "url": "https://gemini.google",
+      "pricingUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "checked": "2026-10-05"
+    },
+    {
+      "id": "perplexity",
+      "name": "Perplexity",
+      "company": "Perplexity",
+      "bestFor": "Research with linked sources",
+      "description": "Search and explore questions with references to the material behind the answer.",
+      "price": "Free and Pro plans",
+      "freeTier": true,
+      "categories": [
+        "Research",
+        "Study"
+      ],
+      "models": [
+        "Plan dependent"
+      ],
+      "similar": [
+        "gemini-notebook",
+        "chatgpt"
+      ],
+      "url": "https://www.perplexity.ai",
+      "pricingUrl": "https://www.perplexity.ai/help-center/en/articles/10352901-what-is-perplexity-pro",
+      "checked": "2026-10-05"
+    },
+    {
+      "id": "gemini-notebook",
+      "name": "Gemini Notebook",
+      "company": "Google",
+      "bestFor": "Studying your source material",
+      "description": "Google's source-focused research notebook, formerly NotebookLM. Use it to understand material you supply.",
+      "price": "Free access and paid upgrades",
+      "freeTier": true,
+      "categories": [
+        "Study",
+        "Research",
+        "Audio"
+      ],
+      "models": [
+        "Gemini"
+      ],
+      "similar": [
+        "perplexity",
+        "claude"
+      ],
+      "url": "https://notebook.google",
+      "pricingUrl": "https://notebook.google",
+      "checked": "2026-10-05"
+    },
+    {
+      "id": "firefly",
+      "name": "Adobe Firefly",
+      "company": "Adobe",
+      "bestFor": "Creative image and video workflows",
+      "description": "Generate and edit creative media with Adobe's generative tools.",
+      "price": "Limited free use · paid credit plans",
+      "freeTier": true,
+      "categories": [
+        "Image",
+        "Video"
+      ],
+      "models": [
+        "Firefly",
+        "Partner models"
+      ],
+      "similar": [
+        "runway",
+        "diffusers"
+      ],
+      "url": "https://www.adobe.com/products/firefly.html",
+      "pricingUrl": "https://www.adobe.com/products/firefly/plans.html",
+      "checked": "2026-10-05"
+    },
+    {
+      "id": "runway",
+      "name": "Runway",
+      "company": "Runway",
+      "bestFor": "Generating and editing video",
+      "description": "An AI creative toolkit for video and visual production. Free credits are limited.",
+      "price": "Free credits · paid plans",
+      "freeTier": true,
+      "categories": [
+        "Video",
+        "Image"
+      ],
+      "models": [
+        "Runway"
+      ],
+      "similar": [
+        "firefly",
+        "gemini"
+      ],
+      "url": "https://runway.com",
+      "pricingUrl": "https://runway.com/pricing",
+      "checked": "2026-10-05"
+    },
+    {
+      "id": "elevenlabs",
+      "name": "ElevenLabs",
+      "company": "ElevenLabs",
+      "bestFor": "Speech, voice and audio",
+      "description": "Create speech and voice experiences, with usage allowances that depend on your plan.",
+      "price": "Free tier · paid plans",
+      "freeTier": true,
+      "categories": [
+        "Audio",
+        "Agents"
+      ],
+      "models": [
+        "ElevenLabs"
+      ],
+      "similar": [
+        "suno"
+      ],
+      "url": "https://elevenlabs.io",
+      "pricingUrl": "https://elevenlabs.io/pricing",
+      "checked": "2026-10-05"
+    },
+    {
+      "id": "suno",
+      "name": "Suno",
+      "company": "Suno",
+      "bestFor": "Making songs from an idea",
+      "description": "Generate music from a prompt. Check your plan's rights before publishing commercially.",
+      "price": "Free credits · paid plans",
+      "freeTier": true,
+      "categories": [
+        "Audio"
+      ],
+      "models": [
+        "Suno"
+      ],
+      "similar": [
+        "elevenlabs"
+      ],
+      "url": "https://suno.com",
+      "pricingUrl": "https://suno.com/pricing",
+      "checked": "2026-10-05"
+    },
+    {
+      "id": "gamma",
+      "name": "Gamma",
+      "company": "Gamma",
+      "bestFor": "Turning ideas into presentations",
+      "description": "Create slide-style presentations and documents from a brief, then edit the result.",
+      "price": "Free credits · paid plans",
+      "freeTier": true,
+      "categories": [
+        "Presentations",
+        "Writing"
+      ],
+      "models": [
+        "Plan dependent"
+      ],
+      "similar": [
+        "canva",
+        "copilot"
+      ],
+      "url": "https://gamma.app",
+      "pricingUrl": "https://gamma.app/pricing",
+      "checked": "2026-10-05"
+    },
+    {
+      "id": "canva",
+      "name": "Canva AI",
+      "company": "Canva",
+      "bestFor": "Designing presentations and visuals",
+      "description": "Combine editable design layouts with AI assistance for writing and creative work.",
+      "price": "Free and paid plans · limits vary",
+      "freeTier": true,
+      "categories": [
+        "Presentations",
+        "Image",
+        "Video",
+        "Writing"
+      ],
+      "models": [
+        "Canva AI"
+      ],
+      "similar": [
+        "gamma",
+        "firefly"
+      ],
+      "url": "https://www.canva.com/canva-ai/",
+      "pricingUrl": "https://www.canva.com/pricing/",
+      "checked": "2026-10-05"
+    },
+    {
+      "id": "jupyter-ai",
+      "name": "Jupyter AI",
+      "company": "Project Jupyter",
+      "bestFor": "AI help inside data notebooks",
+      "description": "An open-source extension that connects notebooks to your chosen model provider.",
+      "price": "Free software · model or compute costs may apply",
+      "freeTier": true,
+      "categories": [
+        "Data",
+        "Coding",
+        "Study"
+      ],
+      "models": [
+        "Provider dependent"
+      ],
+      "similar": [
+        "chatgpt",
+        "copilot"
+      ],
+      "url": "https://jupyter-ai.readthedocs.io/en/latest/",
+      "pricingUrl": "https://jupyter-ai.readthedocs.io/en/latest/users/index.html",
+      "checked": "2026-10-05"
+    },
+    {
+      "id": "grammarly",
+      "name": "Grammarly",
+      "company": "Grammarly",
+      "bestFor": "Editing and improving writing",
+      "description": "Writing assistance for clarity, grammar and drafts across your work.",
+      "price": "Free and paid plans",
+      "freeTier": true,
+      "categories": [
+        "Writing"
+      ],
+      "models": [
+        "Grammarly"
+      ],
+      "similar": [
+        "claude",
+        "chatgpt"
+      ],
+      "url": "https://www.grammarly.com",
+      "pricingUrl": "https://www.grammarly.com/plans",
+      "checked": "2026-10-05"
+    },
+    {
+      "id": "copilot",
+      "name": "Microsoft Copilot",
+      "company": "Microsoft",
+      "bestFor": "Working with Microsoft apps",
+      "description": "AI assistance across Microsoft's products. Capabilities depend on the app and plan.",
+      "price": "Free access and paid work plans",
+      "freeTier": true,
+      "categories": [
+        "Data",
+        "Presentations",
+        "Writing",
+        "Agents"
+      ],
+      "models": [
+        "Plan dependent"
+      ],
+      "similar": [
+        "chatgpt",
+        "gamma"
+      ],
+      "url": "https://www.microsoft.com/en-us/copilot",
+      "pricingUrl": "https://www.microsoft.com/en-us/microsoft-365/copilot/pricing",
+      "checked": "2026-10-05"
+    },
+    {
+      "id": "diffusers",
+      "name": "Diffusers",
+      "company": "Hugging Face",
+      "bestFor": "Running image models yourself",
+      "description": "An open-source library for image and video pipelines. Model licenses and hardware requirements vary.",
+      "price": "Free library · hardware or hosting costs",
+      "freeTier": true,
+      "categories": [
+        "Image",
+        "Video",
+        "Coding"
+      ],
+      "models": [
+        "Open models"
+      ],
+      "similar": [
+        "firefly",
+        "runway"
+      ],
+      "url": "https://huggingface.co/docs/diffusers/index",
+      "pricingUrl": "https://huggingface.co/docs/diffusers/index",
+      "checked": "2026-10-05"
+    }
+  ],
+  "articles": [
+    {
+      "id": "gpt-6-1-sol-launch",
+      "title": "GPT-6.1 Sol joins OpenAI's model lineup",
+      "company": "OpenAI",
+      "source": "OpenAI API changelog",
+      "url": "https://developers.openai.com/api/docs/changelog#september-2026",
+      "published": "2026-09-29T00:00:00Z",
+      "summary": "OpenAI added GPT-6.1 Sol for complex coding and professional tasks. The API supports tool calling through Responses and beta multi-agent work.",
+      "why": "If you use coding agents, compare quality and task cost on your own project before switching.",
+      "tags": [
+        "Models",
+        "Coding",
+        "Agents"
+      ],
+      "impact": "High",
+      "kind": "model",
+      "checked": "2026-10-05"
+    }
+  ]
+}

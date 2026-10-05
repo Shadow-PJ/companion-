@@ -4,6 +4,7 @@ import type { Mood } from "../pet/character/palette";
 export type { Mood };
 
 export interface StatusView {
+  agent: "claude" | "codex";
   project: string;
   activity: string;
   phase: "idle" | "thinking" | "working" | "needsYou" | "done" | "failed";
@@ -125,6 +126,7 @@ export interface Attachment {
 }
 
 export interface ChatView {
+  agent: "claude" | "codex";
   enabled: boolean;
   busy: boolean;
   reply: string;
@@ -214,7 +216,7 @@ export interface Settings {
     showOnAttention: boolean;
   };
   permissions: { enabled: boolean; timeoutSecs: number };
-  chat: { enabled: boolean; projectDir: string; mode: ChatMode; keepConversation: boolean; claudePath: string };
+  chat: { enabled: boolean; projectDir: string; mode: ChatMode; keepConversation: boolean; agent: "auto" | "claude" | "codex"; claudePath: string };
   gameMode: boolean;
   quickActions: { enabled: boolean; actions: QuickAction[] };
   dropFiles: boolean;

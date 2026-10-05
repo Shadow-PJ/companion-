@@ -15,11 +15,12 @@ pub struct TrayItems {
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
     let game_on = app.state::<AppState>().settings().game_mode;
     let show = MenuItem::with_id(app, "show", "Show Glowby", true, None::<&str>)?;
+    let pulse = MenuItem::with_id(app, "pulse", "AI Pulse…", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let game = CheckMenuItem::with_id(app, "game", "Game mode", true, game_on, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Glowby", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &settings, &game, &separator, &quit])?;
+    let menu = Menu::with_items(app, &[&show, &pulse, &settings, &game, &separator, &quit])?;
 
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .tooltip("Glowby")
@@ -28,6 +29,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show" => pet_window::peek(app, 4),
             "settings" => commands::open_settings_window(app),
+            "pulse" => { if let Err(e) = crate::pulse::open_window(app) { crate::applog::line(e); } },
             "game" => toggle_game_mode(app),
             "quit" => {
                 // Any question still waiting goes back to the terminal right away.

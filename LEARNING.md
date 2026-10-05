@@ -630,3 +630,95 @@ do. A less important alert never covers a more important one.
 Auto-allow answers Claude's permission questions. A chat in Claude's own **Auto** mode
 never asks, so there was nothing to answer. Hook events carry `permission_mode`, so
 Glowby now says so when you turn auto-allow on, and briefly shows each action it allowed.
+
+## Version 0.6: a useful AI desk and the correct agent
+
+### 1. Routing is state, not a label
+
+Previously the chat ran Claude even when a Codex session was active. The tracker now
+records each session's provider and last activity. Auto chooses the most recently
+active external session; an explicit setting or a squad target takes priority.
+The running request keeps its provider even if another agent becomes active.
+Claude and Codex conversation IDs use different keys per project, so they cannot
+accidentally resume one another's conversations.
+
+Claude streams `claude -p`; Codex streams `codex exec --json`, using stdin and the
+existing login. Codex resume/fork arguments are placed after exec options. Ask uses
+a read-only sandbox, and Accept edits uses workspace-write. Hook trust remains under
+Codex's control. A successful turn clears a temporary stream error after recovery.
+
+### 2. File events fill gaps in hooks
+
+Desktop sessions do not always emit the same hooks as terminal sessions. A Windows
+file-change watcher listens for local JSONL writes, debounces bursts, and reads at most
+256 KiB from a changed log's tail. It refreshes Codex's recorded percentages and
+Claude's local usage/limit information without constant polling. Hook activity takes
+priority when recent; fallback activity does not award XP or quests twice. A newly
+created file may not contain metadata yet, so the watcher retries on the next write.
+
+Usage appears beside the pet. Warning deduplication now records a warning only when
+it can be shown. If a more important card suppresses it, it can retry after that card
+is handled. Numbers show their age; missing Claude percentages remain unknown.
+
+### 3. Allow has to reach a waiting receiver
+
+A permission card owns a one-shot reply channel. A closed receiver or expired
+deadline is not success. Expired requests pass back to the agent, and the UI shows
+why the answer failed. Successful answers show “Allow sent” rather than claiming
+the command has executed. Closing Glowby or entering game mode passes pending
+questions back to the agent. Unit tests cover one-time delivery, closed receivers,
+deadlines and passing the whole queue.
+
+### 4. Public facts, local retrieval
+
+AI Pulse runs in a separate on-demand Tauri webview. Rust fetches fixed official
+RSS/Atom feeds and newsroom pages, plus the public Artificial Analysis table.
+Requests are bounded by size and time; TLS uses Windows certificate verification.
+The XML/HTML parsers skip unknown entries and preserve dates. CLI prereleases are
+labelled previews. A failed source preserves older data and exposes the failure.
+
+The catalog contains dated tool/model references. API token prices come from
+provider documentation; benchmark task costs come from measured benchmark runs.
+They are different measurements and stay separate. Ranking keeps the exact reasoning
+configuration. The first snapshot establishes a baseline; only later successful
+snapshots can produce movement. We never fabricate a coding benchmark score.
+
+The command bar uses deterministic local retrieval: date windows, synonyms, category
+matching and source cards. It does not send questions to a server or use an agent's
+quota. The daily briefing favors useful announcements and a variety of publishers.
+Saved IDs, follows and themes are local. Preference patches merge under a mutex so
+changing a toggle in Settings cannot erase bookmarks saved in the hub.
+
+### 5. Keep idle work asleep
+
+The hub opens only on request and releases its webview when closed. Background source
+checks are off by default; one sleeping task wakes on a setting change or when the
+chosen interval expires. Checks are deferred during fullscreen games. Manual refresh
+is also limited to once per five minutes. News notices cannot cover permission or
+usage cards. No project files, conversations or private search terms are uploaded
+by the public-source fetcher.
+
+Validation commands: `npm run build:web`, `npm run test:pulse`,
+`cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`.
+The live source test is opt-in: `cargo test -p glowby pulse::tests::live_sources --
+--ignored --nocapture`. Browser preview uses a separate local bookmark store; it
+does not modify the desktop app's saved items.
+
+
+### v0.6 validation and resource measurement
+
+The Windows release build and TypeScript build passed. Local retrieval checks passed;
+96 Rust tests passed across the workspace, and Clippy completed with warnings denied.
+The separate opt-in live source check fetched all eight public sources successfully.
+Browser checks covered both themes, narrow navigation, keyboard search, model
+comparison, tool details and saving items. CLI arguments and permission reply channels
+were validated without spending a real agent turn; existing agent sessions still need
+their configured hook trust and restart before they can use the integration.
+
+On this machine, the v0.6 release used **86.9 MB private working set** across Glowby
+and all five WebView2 helpers, with **0.00% average CPU** over 45 seconds while the
+pet was confirmed hidden and AI Pulse was closed (20 logical cores). Memory is
+slightly above the original ~80 MB target. An earlier active sample was 85.9 MB /
+1.53% CPU; it was not a confirmed hidden sample. Opening the hub or animating the
+pet uses additional resources. These are local measurements, not a guarantee for
+every Windows installation.

@@ -73,11 +73,16 @@ impl Queue {
         self.next_id
     }
 
+    pub fn session_id(&self, id: u64) -> Option<String> {
+        self.items.iter().find(|p| p.id == id).map(|p| p.session_id.clone())
+    }
+
     /// Sends the answer to the waiting hook. Returns the session id if found.
     pub fn resolve(&mut self, id: u64, answer: HookReply) -> Option<String> {
         let index = self.items.iter().position(|p| p.id == id)?;
         let pending = self.items.remove(index)?;
-        let _ = pending.reply.send(answer);
+        if pending.deadline <= Instant::now() { let _ = pending.reply.send(HookReply::Pass); return None; }
+        if pending.reply.send(answer).is_err() { return None; }
         Some(pending.session_id)
     }
 
@@ -133,5 +138,33 @@ fn describe_request(p: &Value) -> (String, String) {
             let detail = serde_json::to_string_pretty(&input).unwrap_or_default();
             (format!("Use {tool}?"), shorten(&detail, 500))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn allow_is_delivered_once_and_reports_closed_or_expired_hooks() {
+        let payload = serde_json::json!({"session_id":"s","tool_name":"Bash","tool_input":{"command":"echo hello"}});
+        let mut queue = Queue::default();
+        let (tx, mut rx) = oneshot::channel();
+        let id = queue.push(GateKind::Permission, &payload, Duration::from_secs(60), tx);
+        assert_eq!(queue.resolve(id, HookReply::Allow), Some("s".into()));
+        assert!(matches!(rx.try_recv().unwrap(), HookReply::Allow));
+        assert!(queue.resolve(id, HookReply::Allow).is_none());
+        let (tx, rx) = oneshot::channel(); drop(rx);
+        let id = queue.push(GateKind::Permission, &payload, Duration::from_secs(60), tx);
+        assert!(queue.resolve(id, HookReply::Allow).is_none());
+        let (tx, mut rx) = oneshot::channel();
+        let id = queue.push(GateKind::Permission, &payload, Duration::ZERO, tx);
+        assert!(queue.resolve(id, HookReply::Allow).is_none());
+        assert!(matches!(rx.try_recv().unwrap(), HookReply::Pass));
+    }
+    #[test]
+    fn game_or_quit_passes_all_questions_back_to_the_agent() {
+        let mut queue = Queue::default(); let (tx, mut rx) = oneshot::channel();
+        queue.push(GateKind::Permission, &serde_json::json!({}), Duration::from_secs(60), tx);
+        queue.pass_all(); assert!(queue.is_empty()); assert!(matches!(rx.try_recv().unwrap(), HookReply::Pass));
     }
 }

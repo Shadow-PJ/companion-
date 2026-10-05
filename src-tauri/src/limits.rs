@@ -90,7 +90,9 @@ pub struct Limits {
     pub claude: Vec<WindowState>,
     pub codex: Vec<WindowState>,
     pub codex_plan: String,
-    /// Warnings already shown ("agent:window:resets_at:level").
+    /// Warnings shown in this app run. A restarted app must recreate pending alerts,
+    /// including alerts that were queued quietly during a fullscreen game.
+    #[serde(skip)]
     pub warned: BTreeSet<String>,
     /// Claude said its limit is used up until then (unix seconds; 0 = not out).
     pub claude_out_until: i64,
@@ -400,7 +402,7 @@ fn recent_codex_logs() -> Vec<PathBuf> {
 /// The newest real limit numbers. Some logs have none (imported chats, a
 /// session that ended before its first reply), so older logs are tried too.
 fn newest_codex_numbers() -> Option<(Value, i64)> {
-    recent_codex_logs().iter().find_map(|p| parse_codex_limits(&tail(p)))
+    recent_codex_logs().iter().filter_map(|p| parse_codex_limits(&tail(p))).max_by_key(|(_, at)| *at)
 }
 
 /// The newest rate-limit numbers in a Codex log ("token_count" events).
@@ -412,6 +414,30 @@ pub fn parse_codex_limits(log: &str) -> Option<(Value, i64)> {
         let at = v.get("timestamp").and_then(Value::as_str).and_then(|t| DateTime::parse_from_rfc3339(t).ok()).map(|t| t.timestamp())?;
         Some((rl, at))
     })
+}
+
+pub fn refresh_from_claude_log(app: &AppHandle) { refresh_claude_estimate(app, false); }
+
+pub fn on_codex_log(app: &AppHandle, text: &str) {
+    let Some((rl, at)) = parse_codex_limits(text) else { return };
+    record_codex(app, rl, at);
+}
+
+fn record_codex(app: &AppHandle, rl: Value, at: i64) {
+    let state = app.state::<AppState>();
+    {
+        let mut limits = lock(&state.limits);
+        limits.codex_plan = rl.get("plan_type").and_then(Value::as_str).unwrap_or("").to_string();
+        for key in ["primary", "secondary"] {
+            let Some(w) = rl.get(key).filter(|w| w.is_object()) else { continue };
+            if limits.codex.iter().any(|x| x.key == key && x.observed_at > at) { continue; }
+            let used = w.get("used_percent").and_then(Value::as_f64);
+            let minutes = w.get("window_minutes").and_then(Value::as_i64).unwrap_or(0);
+            let resets_at = w.get("resets_at").and_then(Value::as_i64).or_else(|| w.get("resets_in_seconds").and_then(Value::as_i64).map(|s| at+s)).unwrap_or(0);
+            window(&mut limits.codex, key, &window_label(minutes)).record(used, None, resets_at, at, true);
+        }
+    }
+    after_update(app);
 }
 
 fn refresh_codex(app: &AppHandle, force: bool) {
@@ -427,26 +453,7 @@ fn refresh_codex(app: &AppHandle, force: bool) {
     let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let Some((rl, at)) = newest_codex_numbers() else { return };
-        let state = app.state::<AppState>();
-        {
-            let mut limits = lock(&state.limits);
-            limits.codex_plan = rl.get("plan_type").and_then(Value::as_str).unwrap_or("").to_string();
-            for key in ["primary", "secondary"] {
-                let Some(w) = rl.get(key).filter(|w| w.is_object()) else {
-                    limits.codex.retain(|x| x.key != key);
-                    continue;
-                };
-                let used = w.get("used_percent").and_then(Value::as_f64);
-                let minutes = w.get("window_minutes").and_then(Value::as_i64).unwrap_or(0);
-                let resets_at = w
-                    .get("resets_at")
-                    .and_then(Value::as_i64)
-                    .or_else(|| w.get("resets_in_seconds").and_then(Value::as_i64).map(|s| at + s))
-                    .unwrap_or(0);
-                window(&mut limits.codex, key, &window_label(minutes)).record(used, None, resets_at, at, true);
-            }
-        }
-        after_update(&app);
+        record_codex(&app, rl, at);
     });
 }
 
@@ -460,7 +467,7 @@ pub fn on_event(app: &AppHandle, event: &str, payload: &Value) {
     }
     let codex = crate::sessions::agent_of(payload) == "codex";
     match event {
-        "Stop" | "PostToolUse" | "SessionStart" if codex => refresh_codex(app, false),
+        "Stop" | "PostToolUse" | "SessionStart" | "UserPromptSubmit" if codex => refresh_codex(app, false),
         "Stop" if !codex => refresh_claude_estimate(app, false),
         _ => {}
     }
@@ -614,7 +621,7 @@ pub fn view(app: &AppHandle) -> Option<LimitsView> {
 
 /// When a limit gets tight: an offer to save a handoff note, mentioning the
 /// other agent if it has more room. Once per window and level.
-fn maybe_warn(app: &AppHandle) {
+pub fn maybe_warn(app: &AppHandle) {
     let state = app.state::<AppState>();
     let s = state.settings();
     if !s.limits.enabled || !s.limits.warn {
@@ -622,9 +629,10 @@ fn maybe_warn(app: &AppHandle) {
     }
     let now = now_secs();
     let mut warning = None;
+    let mut reserved_key = String::new();
     {
         let mut limits = lock(&state.limits);
-        let best_left = |list: &[WindowState]| list.iter().filter(|w| w.resets_at > now).filter_map(|w| w.used).fold(None::<f64>, |acc, u| Some(acc.map_or(u, |a| a.max(u)))).map(|worst| 100.0 - worst);
+        let best_left = |list: &[WindowState]| list.iter().filter(|w| w.resets_at > now && w.exact && now - w.observed_at <= STALE_SECS).filter_map(|w| w.used).fold(None::<f64>, |acc, u| Some(acc.map_or(u, |a| a.max(u)))).map(|worst| 100.0 - worst);
         let claude_left = best_left(&limits.claude);
         let codex_left = best_left(&limits.codex);
         for (agent, list, other, other_left) in [("Claude", limits.claude.clone(), "Codex", codex_left), ("Codex", limits.codex.clone(), "Claude", claude_left)] {
@@ -636,15 +644,16 @@ fn maybe_warn(app: &AppHandle) {
                 let fresh = now - w.observed_at <= STALE_SECS;
                 let level = if used >= 95.0 { "95" } else if used >= s.limits.warn_percent as f64 { "high" } else if v.tight && fresh { "pace" } else { continue };
                 let key = format!("{agent}:{}:{}:{level}", w.key, w.resets_at);
-                if !limits.warned.insert(key) {
+                if !limits.warned.insert(key.clone()) {
                     continue;
                 }
-                limits.last_save = 0; // remember right away that you were told
+                reserved_key = key;
+                limits.last_save = 0; // save after a warning is actually shown
                 let tip = match other_left {
                     Some(left) if left > 30.0 => format!(" {other} still has about {left:.0}% left, so you could continue there."),
                     _ => String::new(),
                 };
-                let age = if fresh { "These numbers can be a few minutes old." } else { "That's the latest number I have; it can only be higher now." };
+                let age = if fresh { "These numbers can be a few minutes old." } else { "This is the latest reading I have; it may be stale." };
                 warning = Some((
                     format!("{agent} is at {} of its {} limit", v.used_text, w.label.to_lowercase()),
                     format!("{}, {}. {}.{tip} {age}", v.forecast, v.resets_text, v.as_of),
@@ -663,13 +672,22 @@ fn maybe_warn(app: &AppHandle) {
     let Some((title, detail)) = warning else { return };
     let notification = (title.clone(), "Glowby has a handoff note ready, to continue later or with the other agent.".to_string());
     let offer = crate::actions::Offer { kind: "limits", title, detail, project: String::new(), url: None, dir: None };
-    let _ = crate::alerts::raise(app, offer, std::time::Duration::from_secs(3600), Some(notification));
+    if !crate::alerts::raise(app, offer, std::time::Duration::from_secs(3600), Some(notification)) {
+        lock(&state.limits).warned.remove(&reserved_key);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn restart_can_recreate_an_alert_instead_of_remembering_an_invisible_card() {
+        let limits: Limits = serde_json::from_value(json!({"warned":["Codex:primary:123:high"]})).unwrap();
+        assert!(limits.warned.is_empty());
+        assert!(serde_json::to_value(limits).unwrap().get("warned").is_none());
+    }
 
     #[test]
     fn pace_gives_a_rough_time_to_the_limit() {

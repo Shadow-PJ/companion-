@@ -1,6 +1,6 @@
 import { defineConfig } from "vite";
 
-// Two pages: the pet window and the settings window.
+// On-demand pages: companion, settings and AI Pulse.
 export default defineConfig({
   clearScreen: false,
   server: { host: "127.0.0.1", port: 1420, strictPort: true },
@@ -9,7 +9,7 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
     rollupOptions: {
-      input: { pet: "pet.html", settings: "settings.html" },
+      input: { pet: "pet.html", settings: "settings.html", pulse: "pulse.html" },
     },
   },
 });

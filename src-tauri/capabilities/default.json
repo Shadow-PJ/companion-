@@ -2,6 +2,6 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "What Glowby's two windows may do. Anything not listed here is blocked.",
-  "windows": ["pet", "settings"],
+  "windows": ["pet", "settings", "pulse"],
   "permissions": ["core:default", "dialog:allow-open"]
 }

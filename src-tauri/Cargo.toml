@@ -19,8 +19,12 @@ serde_json = { version = "1", features = ["preserve_order"] }
 tokio = { version = "1", features = ["net", "io-util", "sync", "time", "process", "macros", "rt"] }
 similar = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-# Small HTTPS client, used only by the optional GitHub CI check.
-ureq = { version = "3", features = ["json"] }
+# HTTPS client for optional GitHub CI and public AI Pulse sources.
+ureq = { version = "3", features = ["json", "platform-verifier"] }
+# Tolerant parsers for public RSS/Atom and benchmark/newsroom HTML.
+roxmltree = "0.21"
+scraper = "0.24"
+notify = "8"
 glowby-protocol = { path = "../crates/glowby-protocol" }
 glowby-detective = { path = "../crates/glowby-detective" }
 

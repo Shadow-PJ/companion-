@@ -14,10 +14,12 @@ messages that would waste your AI usage, tells you the moment a limit hits (and 
 back), and levels up as you code.
 
 Glowby hides at the top edge and slides out when you hover there. He's drawn entirely
-in code (no image files), uses about 60 MB of RAM and ~0% CPU while hidden, and never
-sends your data anywhere.
+in code (no image files). The v0.6 local release measured 86.9 MB of RAM and 0.00%
+average CPU while hidden, including WebView2 helpers, with AI Pulse closed. Companion
+data stays on your PC. Chat uses your agent account; AI Pulse reads public
+news sources when you open it or opt into background checks.
 
-> **Early version (v0.5).** Glowby is new and improving every week, so expect rough edges.
+> **Early version (v0.6, in development).** Glowby is new and improving every week, so expect rough edges.
 > Ideas and bug reports are very welcome: [open an issue](https://github.com/Shadow-PJ/glowby/issues).
 
 ## Download
@@ -34,7 +36,7 @@ sends your data anywhere.
 * Windows 10 or 11 (64-bit)
 * The Microsoft Edge **WebView2** runtime: already part of Windows 11 and most Windows 10
   PCs. If Glowby doesn't open, [get it from Microsoft](https://developer.microsoft.com/microsoft-edge/webview2/).
-* [Claude Code](https://claude.com/claude-code), installed and signed in
+* [Claude Code](https://claude.com/claude-code) or Codex, installed and signed in
 
 **Start Glowby with Windows (optional):** press `Win + R`, type `shell:startup`, press
 Enter, and put a shortcut to `Glowby.exe` in the folder that opens.
@@ -95,7 +97,15 @@ their normal prompt, so they're never blocked.
 
 **Helps you**
 
-* **Chat:** click Glowby to ask Claude Code about your project.
+* **Automatic agent switching:** run Claude Code or Codex and Glowby follows the most
+  recently active session. Chat labels, routing, project context and visible usage follow
+  that agent. You can pin an agent in Settings → Chat. Conversations stay separate.
+* **Chat:** click Glowby to ask the active agent about your project using its existing
+  login. Codex Ask is read-only; choose Accept edits explicitly for workspace edits.
+* **Visible limits:** usage and reset information appear beside the pet automatically.
+  Warnings pop out at your configured threshold. Unknown percentages remain unknown.
+* **Permission feedback:** Allow/Deny confirms that the answer was sent; expired or
+  disconnected requests show an explanation instead of pretending to succeed.
 * **Quick actions:** right-click Glowby: explain the last error, run and fix the project,
   commit with a good message … (editable in Settings).
 * **Drop a file** on Glowby, then pick Explain / Review / Fix / Summarize.
@@ -123,25 +133,66 @@ their normal prompt, so they're never blocked.
   any character you like (your favourite anime hero, your cat …) as a round icon, with
   all his moods. Pictures stay on your PC.
 * **Daily quests and streaks.** Ignore him for days and he gets tired, but he never dies.
-* **Squad mode** (off by default): one small pet for each running Claude Code session,
+* **Squad mode** (off by default): one small pet for each running Claude Code or Codex session,
   each levelling up on its own. Click one to see what it's doing or chat with it.
 
 Every feature has its own switch in Settings. **Game mode** hides Glowby and mutes him
 while a fullscreen game runs.
 
+## AI Pulse — your personal AI desk
+
+Open **AI Pulse** from the pet's right-click menu, the tray, or Settings.
+
+* A clean Home with five selected updates, a tool to explore, model movement and a
++  measured leaderboard. Light, dark and system themes; responsive navigation.
+* News and a release timeline from OpenAI, Anthropic, Google, Meta, Hugging Face and
++  the official Codex / Claude Code repositories. Preview CLI builds are labelled.
+* **Explore AI:** 19 tools across coding, image, video, audio, study, research, data,
++  writing, agents and presentations. Each has use cases, price/access notes and alternatives.
+* Model comparisons with dated provider specifications, an API request calculator,
++  and Artificial Analysis's measured Intelligence Index, speed and task cost.
++  Benchmark task cost is different from API token pricing. There is no universal winner.
+* **Ask anything about AI:** searches the local news cache, model reference and tool
++  directory, with source links. It does not call an AI model or spend your usage.
++  Try “What happened with OpenAI this week?” or “Free AI for making videos”.
+* Local bookmarks, company/model/topic follows, watchlist updates, **Ctrl/Cmd K** for
++  the command palette and **Alt 1–7** to navigate.
+
+Opening the hub refreshes old public data. Background checks are **off by default**;
++enable them in AI Pulse → Preferences for watchlist and daily briefing notices.
++The default interval is six hours (adjustable from 1 to 24 hours). Game mode defers
++background requests and pet notices. Closing the hub releases its webview.
+
+Every item shows its date and original source. Failed sources keep their last data
++and display an error. Model/tool API prices are a **dated reference shipped with the
++app**; public benchmark measurements refresh independently. Free access may have
++credits, limits or hardware costs; check the linked provider before spending money.
+
+### Connecting both agents
+
+Use **Connect Claude Code + Codex** in Settings, review both diffs, and apply.
++Restart agent sessions. In Codex, use **`/hooks`** to review and trust the installed
++hooks. Glowby does not bypass that trust. A local file-change watcher keeps limits
++and basic activity current even when a desktop session does not emit hooks.
++Claude percentages require Claude Code's status-line data; if unavailable, Glowby
++shows a token count or a reported limit/reset instead of inventing a percentage.
++Pace forecasts are rough and become stale when you stop working.
+
 ## Privacy and safety
 
 * **No telemetry.** Everything stays on your PC: settings and progress in
   `%APPDATA%\dev.glowby.app`, the hook program in `%LOCALAPPDATA%\Glowby\bin`.
-  Glowby itself only goes online for the optional GitHub CI check; chat and learn mode
-  go through Claude Code with your own login.
+  AI Pulse reads fixed public news feeds and benchmark pages when used or when you
+  enable background checks. Search terms, project files, follows and bookmarks are not
+  uploaded. Optional CI checks contact GitHub. Chat uses your selected agent with
+  your existing login; learn mode uses Claude Code.
 * **Claude Code is never blocked.** The hooks "fail open": if Glowby is closed or
   crashes, Claude Code works exactly as if Glowby didn't exist. The only thing Glowby ever
   stops on purpose is a message to a big cold chat (once, with the reason shown, and you
   can turn it off). If Glowby doesn't answer within 3 seconds, the message goes through.
 * The fresh-start note uses your recent requests and the last answer from the chat log,
   only on your PC and only onto your clipboard.
-* **Your Claude settings are changed only after you see the diff**, with a backup first.
+* **Your Claude and Codex settings are changed only after you see the diffs**, with a backup first.
   **Uninstall hooks** removes only Glowby's entries.
 * A GitHub token (only if you use the CI check) is kept in Windows Credential Manager,
   never in a file.
@@ -187,10 +238,11 @@ npm run release        # builds target\release\glowby.exe (the hook program is b
 * `cargo test --workspace`: the Rust tests.
 * `.\scripts\fake-event.ps1 -Event Stop -Message "Done!"`: send Glowby a pretend Claude
   Code event without running Claude Code.
+* `npm run test:pulse`: check local hub retrieval and comparisons.
 * `.\scripts\measure.ps1 -Seconds 60`: measure RAM and CPU.
 
 **Publishing a new version:** bump the version in `Cargo.toml`, `package.json` and
-`src-tauri/tauri.conf.json`, then push a tag (`git tag v0.5.0` → `git push origin v0.5.0`).
+`src-tauri/tauri.conf.json`, then push a tag (`git tag v0.6.0` → `git push origin v0.6.0`).
 GitHub Actions builds `Glowby.exe` and publishes the release.
 
 ```

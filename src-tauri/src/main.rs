@@ -2,6 +2,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod actions;
+mod agent_watch;
+mod codex_chat;
 mod alerts;
 mod applog;
 mod autoallow;
@@ -27,6 +29,7 @@ mod permissions;
 mod pet_window;
 mod pipe_server;
 mod progress;
+mod pulse;
 mod projects;
 mod quests;
 mod sessions;
@@ -54,7 +57,9 @@ fn main() {
             let config_dir = app.path().app_config_dir()?;
             applog::init(&config_dir);
             applog::line(format!("Glowby {} starting", app.package_info().version));
+            app.manage(crate::pulse::Pulse::new(config_dir.clone()));
             app.manage(AppState::new(config_dir));
+            crate::pulse::spawn(handle.clone());
 
             // Keep the installed hook program up to date if hooks are installed.
             // (Install it BEFORE checking the status: a fresh copy of glowby.exe,
@@ -66,7 +71,7 @@ fn main() {
                 applog::line(format!("hook program: {e}"));
             }
             let status = hooks_installer::status(&handle);
-            lock(&app.state::<AppState>().ui).hooks_installed = matches!(status.state, "installed" | "outdated");
+            lock(&app.state::<AppState>().ui).hooks_installed = matches!(status.state, "installed" | "outdated") || matches!(codex_hooks_installer::status(&handle).state, "installed" | "outdated");
 
             // Order matters: windows first, then things that reference them.
             hotzone::create(&handle);
@@ -78,6 +83,7 @@ fn main() {
             state::spawn_mood_timer(handle.clone());
             tauri::async_runtime::spawn(pipe_server::run(handle.clone()));
             github::spawn(handle.clone()); // sleeps unless the CI check is turned on
+            crate::agent_watch::spawn(&handle);
             limits::refresh_now(&handle); // fresh Claude / Codex limit numbers at start
             limits::resume(&handle); // still out of Claude usage? "back" alert at the reset
 
@@ -88,7 +94,7 @@ fn main() {
 
             // First run without hooks: open Settings so you can connect Glowby,
             // but never on top of a fullscreen game (then: when the game closes).
-            if status.state == "notInstalled" {
+            if !lock(&app.state::<AppState>().ui).hooks_installed {
                 if game_active {
                     lock(&app.state::<AppState>().ui).settings_after_game = true;
                 } else {
@@ -122,6 +128,11 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            crate::pulse::pulse_open,
+            crate::pulse::pulse_view,
+            crate::pulse::pulse_refresh,
+            crate::pulse::pulse_preferences,
+            crate::pulse::pulse_open_source,
             commands::pet_ready,
             commands::set_hit_regions,
             commands::answer_permission,

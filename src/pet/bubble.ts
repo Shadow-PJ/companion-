@@ -177,7 +177,7 @@ export class Bubble {
   }
 
   private renderMenu(v: PetView) {
-    const key = JSON.stringify([v.quickActions, v.emotes, v.autoAllow, !!v.limits]);
+    const key = JSON.stringify([v.quickActions, v.emotes, v.autoAllow, !!v.limits, v.chat.agent]);
     if (key === this.menuKey) return;
     this.menuKey = key;
     const item = (label: string, onClick: () => void, extra = "") =>
@@ -201,8 +201,9 @@ export class Bubble {
         this.autoAllowControls(v),
         el("hr"),
         v.limits ? item("AI limits (Claude & Codex)", () => this.openLimits(), "subtle") : null,
+        item("AI Pulse · news, models and tools", () => void invoke("pulse_open").catch(e => { this.chatError.textContent = String(e); this.chatError.hidden = false; }), "subtle"),
         item("Token detective: case report", () => void invoke("detective_run"), "subtle"),
-        item("Chat with Claude…", () => this.openChat(), "subtle"),
+        item(`Chat with ${v.chat.agent === "codex" ? "Codex" : "Claude"}…`, () => this.openChat(), "subtle"),
         item("Today's briefing and quests", () => void invoke("briefing_show"), "subtle"),
         item("Settings…", () => void invoke("open_settings"), "subtle"),
       ),
@@ -212,7 +213,7 @@ export class Bubble {
   // ---------- token detective ----------
 
   private renderCase(c: CaseReport) {
-    const key = JSON.stringify(c);
+    const key = JSON.stringify([c, this.view?.chat.agent]);
     if (key === this.caseKey) return;
     this.caseKey = key;
     const findings = c.findings.map((f, i) =>
@@ -222,7 +223,7 @@ export class Bubble {
         el("div", { class: "limit-head" }, el("strong", { text: `${i + 1}. ${f.title}` }), el("span", { class: "muted small", text: f.share })),
         el("div", { class: "muted small", text: f.detail }),
         el("div", { class: "line small", text: `Tip: ${f.tip}` }),
-        f.canFix ? el("div", { class: "actions" }, button("Ask Claude how to split it", "", () => void invoke("detective_fix", { index: i }))) : null,
+        f.canFix ? el("div", { class: "actions" }, button(`Ask ${this.view?.chat.agent === "codex" ? "Codex" : "Claude"} to fix it`, "", () => void invoke("detective_fix", { index: i }))) : null,
       ),
     );
     this.caseBox.replaceChildren(
@@ -424,7 +425,7 @@ export class Bubble {
         v.characters.length ? null : el("div", { class: "muted small", text: "Import characters in Settings to dress up your squad." }),
         this.squadError ? el("div", { class: "error", text: this.squadError }) : null,
         el("div", { class: "actions" }, chat, button("Close", "ghost", () => this.closeSquad())),
-        el("div", { class: "muted small", text: "Chat works in this session's folder (for Claude Code sessions, on a copy of the conversation, so your terminal isn't disturbed)." }),
+        el("div", { class: "muted small", text: "Chat works in this session's folder on a copy of its conversation, so your terminal isn't disturbed." }),
       ),
     );
   }
@@ -483,7 +484,8 @@ export class Bubble {
 
   private renderChat(v: PetView) {
     const c = v.chat;
-    this.chatHeading.textContent = c.squadName ? `Ask ${c.squadName}` : "Ask Claude";
+    const agent = c.agent === "codex" ? "Codex" : "Claude";
+    this.chatHeading.textContent = c.squadName ? `Ask ${c.squadName} · ${agent}` : `Ask ${agent}`;
     this.chatProject.textContent = c.hasProject ? `${c.project} ▾` : "Choose folder ▾";
     this.chatProject.title = c.squadName
       ? `${c.projectPath}\nClick to choose a folder (back to Glowby's own chat)`
@@ -521,13 +523,13 @@ export class Bubble {
     const hasFiles = c.attachments.length > 0;
     this.chatFiles.hidden = !hasFiles;
     this.chatSuggest.hidden = !hasFiles || c.busy;
-    this.chatInput.placeholder = hasFiles ? "Or tell me what to do with it…" : "Ask Claude about your project…";
+    this.chatInput.placeholder = hasFiles ? "Or tell me what to do with it…" : `Ask ${agent} about your project…`;
 
     let notice: (Node | string)[] = [];
     if (!c.enabled) notice = ["Chat is turned off in Settings."];
     else if (!c.hasProject) notice = ["Start a Claude Code or Codex session once and I'll use its folder, or click “Choose folder”."];
     else if (c.folderSource === "squad" && !c.reply && !c.busy)
-      notice = [`Chatting in ${c.squadName}'s project. For a Claude Code session it also knows what the session did (on a copy, so your terminal isn't disturbed).`];
+      notice = [`Chatting in ${c.squadName}'s project. A separate copy of that agent's conversation keeps the original session undisturbed.`];
     else if (c.folderSource === "recent" && !c.reply && !c.busy && !hasFiles)
       notice = [`Working in the folder your Claude Code or Codex sessions used last. Click the folder to change it.`];
     this.chatNotice.replaceChildren(...notice);
@@ -741,7 +743,12 @@ export class Bubble {
     const isChat = p.kind === "chatGate";
     const answer = (choice: string) => {
       this.permBox.querySelectorAll("button").forEach((b) => (b.disabled = true));
-      void invoke("answer_permission", { id: p.id, choice });
+      void invoke("answer_permission", { id: p.id, choice }).catch(error => {
+        this.permBox.querySelectorAll("button").forEach(b => b.disabled = false);
+        this.countdown!.textContent = String(error);
+        this.countdown!.setAttribute("role", "alert");
+        window.clearInterval(this.countdownTimer);
+      });
     };
     this.countdown = el("div", { class: "muted small" });
     this.permBox.replaceChildren(
@@ -795,14 +802,14 @@ export class Bubble {
     } else if (!v.hooksInstalled) {
       key = "nohooks";
       content = [
-        el("div", { class: "line", text: "I'm not connected to Claude Code yet." }),
+        el("div", { class: "line", text: "Connect Claude Code or Codex in Settings." }),
         el("div", { class: "actions" }, button("Connect in Settings", "primary", () => void invoke("open_settings"))),
       ];
     } else if (v.status) {
       const s = v.status;
-      key = `status:${s.project}:${s.phase}:${s.activity}:${s.others}`;
+      key = `status:${s.agent}:${s.project}:${s.phase}:${s.activity}:${s.others}`;
       content = [
-        el("div", { class: "eyebrow" }, el("span", { class: `dot ${s.phase}` }), `${s.fromPetChat ? "Glowby chat" : s.project} · ${PHASE_LABEL[s.phase] ?? s.phase}`),
+        el("div", { class: "eyebrow" }, el("span", { class: `dot ${s.phase}` }), `${s.fromPetChat ? "Glowby chat" : s.agent === "codex" ? "Codex" : "Claude"}${s.project ? ` · ${s.project}` : ""} · ${PHASE_LABEL[s.phase] ?? s.phase}`),
         el("div", { class: "line", text: s.activity }),
         s.others > 0 ? el("div", { class: "muted small", text: `+${s.others} other session${s.others > 1 ? "s" : ""}` }) : null,
       ];
@@ -828,6 +835,16 @@ export class Bubble {
         ),
       );
       if (a.note) content.push(el("div", { class: "muted small", text: a.note }));
+    }
+    // Usage is visible automatically with the active agent, without opening a card.
+    if (!v.toast && v.limits) {
+      const name = v.chat.agent === "codex" ? "Codex" : "Claude";
+      const agent = v.limits.agents.find(a => a.agent === name);
+      const window = agent?.windows[0];
+      if (window) {
+        key += `|usage:${name}:${window.usedText}:${window.resetsText}`;
+        content.push(el("div", { class: "muted small" }, `${name} · ${window.label} ${window.usedText} · ${window.resetsText}`, button("Details", "ghost tiny", () => this.openLimits())));
+      }
     }
     // Level, XP bar, streak and quests under the status (not on toasts).
     const p = v.toast ? null : v.progress;

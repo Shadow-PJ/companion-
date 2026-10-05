@@ -28,6 +28,7 @@ const MAX_REPLY_CHARS: usize = 20_000;
 #[derive(Default)]
 pub struct ChatState {
     pub busy: bool,
+    pub running_agent: String,
     pub reply: String,
     pub activity: String,
     pub error: Option<String>,
@@ -64,6 +65,7 @@ pub struct AttachmentView {
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatView {
+    pub agent: &'static str,
     pub enabled: bool,
     pub busy: bool,
     pub reply: String,
@@ -145,7 +147,16 @@ pub fn effective_dir(state: &AppState, settings: &Settings) -> (String, &'static
     }
 }
 
+pub fn effective_agent(state: &AppState, settings: &Settings, target: Option<&str>) -> &'static str {
+    if let Some(id) = target { return lock(&state.tracker).session_agent(id).unwrap_or_else(|| if crate::squad::is_claude_session(id) { "claude" } else { "codex" }); }
+    match settings.chat.agent.as_str() { "codex" => "codex", "claude" => "claude", _ => lock(&state.tracker).latest_agent() }
+}
+
+fn session_key(agent: &str, dir: &str) -> String { if agent == "codex" { format!("codex:{dir}") } else { dir.to_string() } }
+
 pub fn view(state: &AppState, settings: &Settings) -> ChatView {
+    let target_id = lock(&state.chat).target.as_ref().map(|t| t.session_id.clone());
+    let active = effective_agent(state, settings, target_id.as_deref());
     let target = lock(&state.chat).target.as_ref().map(|t| (t.dir.clone(), t.name.clone(), t.session_id.clone()));
     let (dir, source, has_conversation, squad_name) = match target {
         Some((dir, name, id)) => {
@@ -154,18 +165,21 @@ pub fn view(state: &AppState, settings: &Settings) -> ChatView {
         }
         None => {
             let (dir, source) = effective_dir(state, settings);
-            let has = lock(&state.chat_sessions).contains_key(&dir);
+            let has = lock(&state.chat_sessions).contains_key(&session_key(active, &dir));
             (dir, source, has, None)
         }
     };
     let chat = lock(&state.chat);
+    let agent = if chat.busy { if chat.running_agent == "codex" { "codex" } else { "claude" } } else { active };
+    let same_agent = chat.running_agent.is_empty() || chat.running_agent == agent;
     ChatView {
+        agent,
         enabled: settings.chat.enabled,
         busy: chat.busy,
-        reply: chat.reply.clone(),
+        reply: if same_agent { chat.reply.clone() } else { String::new() },
         activity: chat.activity.clone(),
-        error: chat.error.clone(),
-        title: chat.title.clone(),
+        error: if same_agent { chat.error.clone() } else { None },
+        title: if same_agent { chat.title.clone() } else { String::new() },
         attachments: chat
             .attachments
             .iter()
@@ -309,24 +323,22 @@ async fn send_inner(app: &AppHandle, request: ChatRequest) -> Result<(), String>
     if message.is_empty() {
         return Ok(());
     }
-    let claude = find_claude(&settings.chat.claude_path)
-        .ok_or("Couldn't find claude.exe. Set its path in Settings → Chat.")?;
-    let chat_hooks = write_chat_hooks(&app)?;
+    let agent = effective_agent(&state, &settings, target.as_ref().map(|t| t.0.as_str()));
+    let key = session_key(agent, &dir);
+    let claude = if agent == "claude" { Some(find_claude(&settings.chat.claude_path).ok_or("Couldn't find Claude Code. Set its path in Settings → Chat.")?) } else { None };
+    if agent == "codex" && crate::codex_chat::find_codex().is_none() { return Err("Couldn't find Codex. Install the Codex CLI or desktop app and sign in.".into()); }
+    let chat_hooks = if agent == "claude" { Some(write_chat_hooks(&app)?) } else { None };
     // (session to resume, make a copy of it first?)
     let resume: Option<(String, bool)> = match &target {
         Some((session_id, _)) => {
             let fork = crate::squad::fork_of(&app, session_id);
             if settings.chat.keep_conversation && !fork.is_empty() {
                 Some((fork, false))
-            } else if crate::squad::is_claude_session(session_id) {
-                Some((session_id.clone(), true))
             } else {
-                // a Codex session: Claude can't open its conversation, so start a
-                // fresh chat in that session's folder instead
-                None
+                Some((session_id.clone(), true))
             }
         }
-        None if settings.chat.keep_conversation => lock(&state.chat_sessions).get(&dir).cloned().map(|id| (id, false)),
+        None if settings.chat.keep_conversation => lock(&state.chat_sessions).get(&key).cloned().map(|id| (id, false)),
         None => None,
     };
 
@@ -336,6 +348,7 @@ async fn send_inner(app: &AppHandle, request: ChatRequest) -> Result<(), String>
         if chat.busy {
             return Err("Still waiting for the last reply.".into());
         }
+        chat.running_agent = agent.into();
         chat.busy = true;
         chat.reply.clear();
         chat.error = None;
@@ -349,8 +362,11 @@ async fn send_inner(app: &AppHandle, request: ChatRequest) -> Result<(), String>
     let (attachment_text, extra_dirs) = attachment_context(&attachments, &dir);
     let message = format!("{message}{attachment_text}");
 
-    let mut cmd = tokio::process::Command::new(&claude);
-    cmd.args(["-p", "--output-format", "stream-json", "--verbose", "--settings"]).arg(&chat_hooks);
+    let outcome = if agent == "codex" {
+        crate::codex_chat::run(&app, &dir, message, settings.chat.mode, request.read_only, resume, &mut cancel_rx).await
+    } else {
+    let mut cmd = tokio::process::Command::new(claude.as_ref().expect("Claude runner"));
+    cmd.args(["-p", "--output-format", "stream-json", "--verbose", "--settings"]).arg(chat_hooks.as_ref().expect("Claude hooks"));
     match settings.chat.mode {
         ChatMode::Ask => {}
         ChatMode::ReadOnly => {
@@ -379,7 +395,8 @@ async fn send_inner(app: &AppHandle, request: ChatRequest) -> Result<(), String>
         .kill_on_drop(true)
         .creation_flags(CREATE_NO_WINDOW);
 
-    let outcome = run_claude(&app, cmd, message, &mut cancel_rx).await;
+    run_claude(&app, cmd, message, &mut cancel_rx).await
+    };
     {
         let mut chat = lock(&state.chat);
         chat.busy = false;
@@ -390,7 +407,7 @@ async fn send_inner(app: &AppHandle, request: ChatRequest) -> Result<(), String>
             // squad chats remember their copy on the squad pet (below)
             Ok(Some(session_id)) if settings.chat.keep_conversation && target.is_none() => {
                 let mut sessions = lock(&state.chat_sessions);
-                sessions.insert(dir.clone(), session_id.clone());
+                sessions.insert(key.clone(), session_id.clone());
                 let _ = settings::save_json(&state.paths.chat_sessions_file, &*sessions);
             }
             Ok(_) => {}
@@ -539,7 +556,8 @@ pub fn new_conversation(app: &AppHandle) {
     } else {
         let (dir, _) = effective_dir(&state, &state.settings());
         let mut sessions = lock(&state.chat_sessions);
-        sessions.remove(&dir);
+        let agent = effective_agent(&state, &state.settings(), None);
+        sessions.remove(&session_key(agent, &dir));
         let _ = settings::save_json(&state.paths.chat_sessions_file, &*sessions);
     }
     {
