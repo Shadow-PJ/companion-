@@ -21,7 +21,7 @@ export interface Benchmark {
 export interface SourceStatus { name: string; url: string; checked: string; ok: boolean; error: string }
 export interface Cache {
   articles: Article[]; models: Model[]; tools: Tool[]; benchmarks: Benchmark[];
-  sources: SourceStatus[]; lastChecked: string; changes: Article[]; lastAttempt: number;
+  sources: SourceStatus[]; lastChecked: string; changes: Article[]; lastAttempt: number; sourceRevision?: number;
 }
 export interface Preferences {
   enabled: boolean; background: boolean; alerts: boolean; daily: boolean; everyHours: number;
@@ -29,7 +29,7 @@ export interface Preferences {
   theme: string; lastBriefingDay: string;
 }
 export interface View { cache: Cache; preferences: Preferences; refreshing: boolean }
-export type Page = "home" | "news" | "models" | "arena" | "tools" | "releases" | "saved" | "settings" | "search";
+export type Page = "home" | "news" | "models" | "arena" | "tools" | "releases" | "saved" | "settings" | "preferences" | "search";
 export const categories = ["Coding", "Image", "Video", "Audio", "Study", "Research", "Data", "Writing", "Agents", "Presentations"];
 export const topics = ["All", "Models", "Agents", "Coding", "Image", "Video", "Audio", "Research", "Business"];
 

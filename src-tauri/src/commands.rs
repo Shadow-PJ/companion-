@@ -10,7 +10,7 @@ use crate::{actions, chat, error_watch, gamemode, pipe_server, tray};
 use glowby_protocol::HookReply;
 use serde::Serialize;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager};
 
 // ---------- pet window ----------
 
@@ -363,27 +363,36 @@ pub fn open_settings(app: AppHandle) {
 
 /// Created on demand and destroyed when closed, so it uses no memory otherwise.
 pub fn open_settings_window(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("settings") {
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
-        return;
+    if let Err(error) = crate::pulse::open_window_at(app, "settings") {
+        crate::applog::line(format!("Settings window: {error}"));
+        state::toast(app, "info", error, String::new(), 8);
     }
-    // Building a window from a background task avoids a known WebView2 deadlock.
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let built = WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
-            .title("Glowby Settings")
-            .inner_size(860.0, 760.0)
-            .min_inner_size(560.0, 480.0)
-            .center()
-            .additional_browser_args(pet_window::BROWSER_ARGS)
-            .build();
-        match built {
-            Ok(_) => crate::applog::line("settings window opened"),
-            Err(e) => crate::applog::line(format!("settings window failed: {e}")),
-        }
-    });
+}
+
+#[tauri::command]
+pub fn companion_status(app: AppHandle) -> serde_json::Value {
+    state::companion_snapshot(&state::current_view(&app))
+}
+
+/// A deliberate provider choice. No login, tool permissions or hook trust changes.
+#[tauri::command]
+pub fn chat_select_agent(app: AppHandle, agent: String, open: bool) -> Result<(), String> {
+    if !["auto", "claude", "codex"].contains(&agent.as_str()) {
+        return Err("Choose Auto, Claude or Codex.".into());
+    }
+    let state = app.state::<AppState>();
+    if lock(&state.chat).busy { return Err("Wait for the current reply before switching agents.".into()); }
+    let mut settings = state.settings();
+    if open && !settings.chat.enabled { return Err("Enable chat in Settings first.".into()); }
+    settings.chat.agent = agent;
+    state.try_save_settings(settings)?;
+    chat::set_target(&app, None);
+    if open {
+        pet_window::show(&app);
+        chat_open(app.clone());
+    }
+    state::publish(&app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -392,10 +401,10 @@ pub fn get_settings(app: AppHandle) -> Settings {
 }
 
 #[tauri::command]
-pub fn save_settings(app: AppHandle, settings: Settings) -> Settings {
+pub fn save_settings(app: AppHandle, settings: Settings) -> Result<Settings, String> {
     let state = app.state::<AppState>();
     let before = state.settings();
-    let saved = state.save_settings(settings);
+    let saved = state.try_save_settings(settings)?;
     if before.pet.monitor != saved.pet.monitor || before.pet.position != saved.pet.position {
         pet_window::place(&app);
     }
@@ -412,7 +421,7 @@ pub fn save_settings(app: AppHandle, settings: Settings) -> Settings {
     }
     state::invalidate_status_line(&app);
     state::publish(&app);
-    saved
+    Ok(saved)
 }
 
 #[tauri::command]

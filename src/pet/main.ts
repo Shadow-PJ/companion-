@@ -25,6 +25,8 @@ let followMouse = true;
 
 function apply(view: PetView) {
   followMouse = view.followMouse;
+  renderer.setReducedMotion(view.reducedMotion);
+  document.documentElement.dataset.reducedMotion = String(view.reducedMotion);
   if (!followMouse) renderer.lookToward(0, 0);
   renderer.setMood(view.mood);
   renderer.setAppearance(view.look);
@@ -159,8 +161,18 @@ void listen<{ id: string; text: string }>("pet://squad-levelup", (e) => {
   if (visible) squad.levelUp(e.payload.id, e.payload.text);
 });
 bubble.onEmote = (id) => void invoke("play_emote", { id });
+bubble.onInteraction = kind => {
+  if (!visible) return;
+  if (kind === "pet") { renderer.pet(); void invoke("pet_petted"); }
+  else renderer.playEmote(kind);
+};
+document.addEventListener("visibilitychange", () => {
+  if(document.hidden)renderer.stop();else if(visible)renderer.start();
+});
 bubble.onSquadChange = () => {
   squad.selected = bubble.squadSelected;
 };
 
+void listen<string>("pulse://theme", e => document.documentElement.dataset.theme = e.payload);
+void invoke<string>("pulse_theme").then(theme => document.documentElement.dataset.theme = theme);
 void invoke<PetView>("pet_ready").then(apply);

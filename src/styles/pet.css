@@ -568,3 +568,11 @@ pre.small-pre {
 .case-finding .limit-head {
   gap: 8px;
 }
+
+/* Compact status and inexpensive direct reactions; no extra canvas or webview. */
+.usage-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:11px 0 6px}.usage-chip.btn{display:flex;flex-direction:column;align-items:flex-start;gap:3px;padding:9px 10px;border-radius:8px;font-size:10px;min-width:0;background:var(--code-bg);color:var(--muted);text-align:left}.usage-chip strong{font-size:11px;font-weight:550;color:var(--fg)}.usage-chip.active{border-color:var(--accent)}.usage-track{display:block;height:3px;width:100%;border-radius:9px;background:var(--border);overflow:hidden;margin-top:4px}.usage-track i{display:block;height:100%;background:var(--accent)}.pet-controls{display:flex;align-items:center;justify-content:space-between;gap:3px;margin:10px 0}.pet-controls .btn{font-size:10px;padding:6px 9px}.agent-choice{display:flex;align-items:center;gap:9px;margin:8px 0;color:var(--muted);font-size:10px}.agent-choice small{font-size:9px;margin-left:auto}.agent-select{background:var(--chip);border:1px solid var(--border);color:var(--fg);border-radius:6px;padding:5px 7px;font:inherit;max-width:120px}.note>.line{font-weight:550}.note>.progress{padding-top:9px;margin-top:4px}.note>.muted.small{font-size:10px}.auto-line{font-size:10px!important;color:var(--muted)!important}html[data-reduced-motion=true] #stage,html[data-reduced-motion=true] #stage.shown{transition-duration:.01s}html[data-reduced-motion=true] #stage.nudge{animation:none}
+
+html[data-theme=light]{color-scheme:light;--bg:rgba(255,255,255,.98);--fg:#20222b;--muted:#787c8a;--border:#e7e8ed;--accent:#6559dc;--accent-fg:#fff;--chip:#f1f2f5;--code-bg:#6559dc08}
+html[data-theme=dark]{color-scheme:dark;--bg:rgba(22,23,28,.98);--fg:#e9eaf0;--muted:#8b8e9d;--border:#30313b;--accent:#a399f8;--accent-fg:#171422;--chip:#22232b;--code-bg:#a399f809}
+@media(prefers-color-scheme:dark){html[data-theme=system]{--bg:rgba(22,23,28,.98);--fg:#e9eaf0;--muted:#8b8e9d;--border:#30313b;--accent:#a399f8;--accent-fg:#171422;--chip:#22232b;--code-bg:#a399f809}}
+html[data-reduced-motion=true] #stage.nudge #pet,html[data-reduced-motion=true] #stage.nudge #bubble{animation:none}

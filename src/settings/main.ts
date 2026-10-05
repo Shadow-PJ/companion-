@@ -1,8 +1,10 @@
 // Settings window. Every change saves automatically (no "Save" button).
 
-import { invoke } from "@tauri-apps/api/core";
+import { settingsInvoke as invoke, desktopSettings } from "./preview";
+import { icon } from "../pulse/ui";
+import "../styles/settings.css";
 import { open } from "@tauri-apps/plugin-dialog";
-import { setCharacterImage } from "../pet/character/images";
+import { keepOnly, setCharacterImage } from "../pet/character/images";
 import { DEFAULT_APPEARANCE, PetRenderer } from "../pet/renderer";
 import { playSound } from "../pet/sound";
 import { button, compact, el } from "../shared/dom";
@@ -10,7 +12,17 @@ import type { AppInfo, AutoAllowEntry, CharacterInfo, ChatMode, CosmeticView, Li
 import { crop, nameFromFile } from "./cropper";
 import type { View as PulseView, Preferences as PulsePreferences } from "../pulse/types";
 
-const app = document.getElementById("app")!;
+let app: HTMLElement;
+let saveBadge: HTMLElement;
+let retrySave: HTMLButtonElement;
+let mountGeneration = 0;
+let mounted = false;
+let buildingGroup = false;
+let refreshStudio = () => {};
+const previewRenderers = new Map<HTMLCanvasElement, PetRenderer>();
+const groupCleanups: (() => void)[] = [];
+let saveRevision = 0;
+let saveQueue: Promise<unknown> = Promise.resolve();
 let settings: Settings;
 let saveTimer = 0;
 /** Your imported characters. */
@@ -20,10 +32,31 @@ let refreshProgress = () => {};
 
 /// Debounced auto-save. The page's `settings` object stays the source of truth
 /// (the editors hold references into it), so we don't replace it with Rust's copy.
-function save() {
-  window.clearTimeout(saveTimer);
-  saveTimer = window.setTimeout(() => void invoke<Settings>("save_settings", { settings }), 250);
+function flushSave() {
+  if (!saveTimer) return;
+  window.clearTimeout(saveTimer); saveTimer = 0;
+  const snapshot = structuredClone(settings), revision = saveRevision;
+  saveQueue = saveQueue.catch(() => {}).then(() => invoke<Settings>("save_settings", { settings: snapshot })).then(() => {
+    if (mounted && revision === saveRevision) { saveBadge.textContent = "All changes saved"; saveBadge.dataset.state = "saved"; retrySave.hidden = true; }
+  }).catch(error => {
+    if (mounted && revision === saveRevision) { saveBadge.textContent = `Couldn't save: ${String(error)}`; saveBadge.dataset.state = "error"; retrySave.hidden = false; }
+  });
 }
+function save() {
+  refreshStudio();
+  saveRevision++;
+  window.clearTimeout(saveTimer);
+  if (mounted) { saveBadge.textContent = "Saving changes…"; saveBadge.dataset.state = "saving"; }
+  saveTimer = window.setTimeout(flushSave, 250);
+}
+
+function cleanPreviews(all = false) {
+  if (buildingGroup && !all) return;
+  for (const [canvas, renderer] of previewRenderers) {
+    if (all || !canvas.isConnected) { renderer.dispose(); previewRenderers.delete(canvas); }
+  }
+}
+function cleanGroup() { keepOnly([]); groupCleanups.splice(0).forEach(stop => stop()); cleanPreviews(true); connectionRefreshers.length = 0; refreshProgress = () => {}; refreshStudio = () => {}; }
 
 // ---------- small building blocks ----------
 
@@ -134,6 +167,11 @@ function quickConnectSection() {
 }
 
 function row(label: string, hint: string | null, control: Node) {
+  if (control instanceof HTMLElement) {
+    const field = control.matches("input,select,textarea") ? control : control.querySelector("input,select,textarea");
+    if (field && !field.hasAttribute("aria-label")) field.setAttribute("aria-label", label);
+    if (field && hint) field.setAttribute("title", hint);
+  }
   return el("div", { class: "row" }, el("div", { class: "label" }, el("div", { text: label }), hint ? el("div", { class: "hint", text: hint }) : null), control);
 }
 
@@ -287,17 +325,19 @@ function petSection(monitors: MonitorInfo[]) {
     select("Monitor", null, monitorOptions, () => settings.pet.monitor, (v) => (settings.pet.monitor = v)),
     row("Position on the top edge", "You can also drag Glowby sideways.", el("span", { class: "inline" }, slider, button("Show me", "ghost", () => void invoke("show_pet")))),
     toggle("Eyes follow the mouse", null, () => settings.pet.followMouse, (v) => (settings.pet.followMouse = v)),
+    toggle("Pet interaction bar", "Wave, pet and play directly beside your companion. No AI requests.", () => settings.pet.interactions, v => settings.pet.interactions = v),
+    toggle("Reduced motion", "Pause ambient motion; keep short reactions. Also respects the Windows reduced-motion preference.", () => settings.pet.reducedMotion, v => settings.pet.reducedMotion = v),
     toggle("Status line while hidden", "A thin line at the top edge: blue = working, amber = needs you.", () => settings.pet.statusLine, (v) => (settings.pet.statusLine = v)),
     toggle("Pop out for permission requests", null, () => settings.pet.showOnPermission, (v) => (settings.pet.showOnPermission = v)),
     toggle("Pop out when a task is done", null, () => settings.pet.showOnDone, (v) => (settings.pet.showOnDone = v)),
-    toggle("Pop out when Claude needs you", "Questions in the terminal, errors.", () => settings.pet.showOnAttention, (v) => (settings.pet.showOnAttention = v)),
+    toggle("Pop out when an agent needs you", "Questions in the terminal, errors.", () => settings.pet.showOnAttention, (v) => (settings.pet.showOnAttention = v)),
   );
 }
 
 function permissionsSection() {
   return section(
     "Permission requests",
-    "When Claude Code asks for permission, Glowby shows Allow / Deny. If you don't answer in time, the question goes back to the terminal.",
+    "Claude Code and Codex can both show Allow / Deny on Glowby. Unanswered questions return to the agent; hook trust and its own approval rules still apply.",
     toggle("Answer permission requests on Glowby", null, () => settings.permissions.enabled, (v) => (settings.permissions.enabled = v)),
     numberInput("Hand back to the terminal after", "5 to 540 seconds.", 5, 540, () => settings.permissions.timeoutSecs, (v) => (settings.permissions.timeoutSecs = v), "seconds"),
   );
@@ -310,7 +350,7 @@ function usageGuardSection() {
     "Glowby steps in before usage is wasted, instead of only telling you afterwards. Big chats are the expensive ones: Claude keeps a chat in a cache for a while (5 minutes or 1 hour), and after that your next message re-sends the whole chat at full price. Everything is checked on this PC from Claude Code's own logs.",
     toggle(
       "Stop expensive messages to cold chats",
-      "When a big chat's cache has gone cold, Glowby stops your message once and puts a fresh-start note with it on your clipboard. Paste it into a new chat, or send the message again within 10 minutes to go ahead anyway. Needs the updated connection (Connect Claude Code above).",
+      "When a big chat's cache has gone cold, Glowby stops your message once and puts a fresh-start note with it on your clipboard. Paste it into a new chat, or send the message again within 10 minutes to go ahead anyway. Needs the updated connection (Connections above).",
       () => d.guard,
       (v) => (d.guard = v),
     ),
@@ -528,7 +568,7 @@ function quickActionsSection() {
           action.label = label.value;
           save();
         });
-        const prompt = el("textarea", { class: "text prompt", rows: 3, maxlength: 4000, placeholder: "What should Claude do?" });
+        const prompt = el("textarea", { class: "text prompt", rows: 3, maxlength: 4000, placeholder: "What should your agent do?" });
         prompt.value = action.prompt;
         prompt.addEventListener("input", () => {
           action.prompt = prompt.value;
@@ -608,7 +648,7 @@ function helpersSection() {
     ),
     toggle(
       "Look sick while tests or builds fail",
-      "Glowby notices when Claude runs your tests or build. It stays sick until they pass again.",
+      "Glowby notices when either agent runs your tests or build. It stays sick until they pass again.",
       () => settings.health,
       (v) => (settings.health = v),
     ),
@@ -618,7 +658,9 @@ function helpersSection() {
 
 function canvasPreview(appearance: Look, mood: "happy" | "idle", faded = false) {
   const c = el("canvas", { class: faded ? "preview faded" : "preview" });
-  new PetRenderer(c).drawStill(mood, { ...DEFAULT_APPEARANCE, ...appearance, weak: false });
+  const renderer = new PetRenderer(c);
+  renderer.drawStill(mood, { ...DEFAULT_APPEARANCE, ...appearance, weak: false });
+  previewRenderers.set(c, renderer);
   return c;
 }
 
@@ -637,7 +679,7 @@ function chosenLook(info: ProgressInfo): Look {
 
 async function progressSection() {
   const info = await invoke<ProgressInfo>("get_progress");
-  const card = section("Glowby's progress", "Glowby earns XP when Claude finishes tasks, when failing tests or builds pass again, for passing tests and commits, and for keeping a daily streak.");
+  const card = section("Glowby's progress", "Glowby earns XP when Claude Code or Codex finishes tasks, when failing tests or builds pass again, for passing tests and commits, and for keeping a daily streak.");
   const body = el("div");
   card.append(body);
 
@@ -665,6 +707,7 @@ async function progressSection() {
         else p.aura = id;
         save();
         render(info);
+        cleanPreviews();
       };
       const none = kind === "hat" ? "No hat" : kind === "aura" ? "No aura" : null;
       return el(
@@ -732,7 +775,7 @@ async function progressSection() {
     );
   }
   render(info);
-  refreshProgress = () => render(info);
+  refreshProgress = () => { render(info); cleanPreviews(); };
   return card;
 }
 
@@ -819,9 +862,11 @@ function charactersSection() {
       return tile(`c:${c.id}`, { character: c.id }, name, false, useButton(`c:${c.id}`, "Use for Glowby"), removeBtn);
     });
     grid.replaceChildren(jelly, ...petTiles, ...tiles);
+    cleanPreviews();
   }
 
   async function importPicture() {
+    if (!desktopSettings) { message.textContent = "Picture import is available in the desktop app; preview does not read your files."; return; }
     message.textContent = "";
     const path = await open({
       multiple: false,
@@ -872,7 +917,7 @@ function charactersSection() {
 function squadSection() {
   return section(
     "Squad mode",
-    "One small pet for each running Claude Code session, next to Glowby. Each pet levels up on its own from what its session does (tool uses, finished tasks, commits, fixes). Click a pet to see what it's doing, change its look, or chat with it. Chat talks to a copy of the session, so the one in your terminal is never disturbed.",
+    "One small pet for each running Claude Code or Codex session, next to Glowby. Each pet levels up on its own from what its session does (tool uses, finished tasks, commits, fixes). Click a pet to see what it's doing, change its look, or chat with it. Chat talks to a copy of the session, so the one in your terminal is never disturbed.",
     toggle("Squad mode", "Off by default.", () => settings.squad.enabled, (v) => (settings.squad.enabled = v)),
     numberInput("Show at most", "1 to 6 pets.", 1, 6, () => settings.squad.maxShown, (v) => (settings.squad.maxShown = v), "pets"),
   );
@@ -902,7 +947,7 @@ function soundsSection() {
     toggle("Sounds", null, () => s.enabled, (v) => (s.enabled = v)),
     row("Volume", null, el("span", { class: "inline" }, slider, button("Test", "ghost", () => playSound("levelup", s.volume / 100)))),
     toggle("Task finished", null, () => s.taskDone, (v) => (s.taskDone = v)),
-    toggle("Claude needs you", "Permission questions and notifications.", () => s.needsYou, (v) => (s.needsYou = v)),
+    toggle("An agent needs you", "Permission questions and notifications.", () => s.needsYou, (v) => (s.needsYou = v)),
     toggle("Problems", "Failing tests or builds, errors.", () => s.problems, (v) => (s.problems = v)),
     toggle("Level up", null, () => s.levelUp, (v) => (s.levelUp = v)),
     toggle("Break reminder", null, () => s.breaks, (v) => (s.breaks = v)),
@@ -931,7 +976,7 @@ const QUEST_KINDS: [string, string][] = [
   ["fix", "Fix bugs (failing tests or builds that pass again)"],
   ["test", "Write tests"],
   ["minutes", "Code for a while"],
-  ["tasks", "Finish tasks with Claude"],
+  ["tasks", "Finish tasks with your agent"],
   ["commit", "Make commits"],
   ["learn", "Answer learn-mode questions (needs learn mode)"],
   ["break", "Take breaks (needs break reminders)"],
@@ -997,7 +1042,7 @@ async function githubSection() {
         ? s.repos.map((r) =>
             el("div", { class: "hint", text: `${r.repo} (${r.branch}): ${r.state === "none" ? "no runs" : r.state}${r.checked ? ` · checked ${r.checked}` : ""}` }),
           )
-        : [el("div", { class: "hint", text: "Repositories: found from the git remotes of your recent Claude Code projects." })]),
+        : [el("div", { class: "hint", text: "Repositories: found from the git remotes of your recent agent projects." })]),
     );
   }
   renderStatus(await invoke<GithubStatus>("github_status"));
@@ -1024,7 +1069,7 @@ async function githubSection() {
   });
   return section(
     "GitHub CI check",
-    "Optional. If a GitHub Actions run fails on your current branch, Glowby tells you and can ask Claude to fix it. Only while this is on, Glowby contacts api.github.com, nothing else. Your token is stored in Windows Credential Manager, never in a file.",
+    "Optional. If a GitHub Actions run fails on your current branch, Glowby tells you and can ask your selected agent to fix it. Only while this is on, Glowby contacts api.github.com, nothing else. Your token is stored in Windows Credential Manager, never in a file.",
     toggle("Check my GitHub CI", null, () => settings.github.enabled, (v) => (settings.github.enabled = v)),
     numberInput("Check every", "5 to 180 minutes (also a few minutes after a git push).", 5, 180, () => settings.github.everyMins, (v) => (settings.github.everyMins = v), "minutes"),
     row("Token", "Create one at github.com → Settings → Developer settings → Fine-grained tokens, with read access to Actions.", el("span", { class: "inline grow" }, token, saveBtn)),
@@ -1061,13 +1106,13 @@ async function pulseSection() {
   const prefs = loaded.preferences;
   const persist = (key: "enabled" | "background", value: boolean) => {
     prefs[key] = value;
-    void invoke<PulsePreferences>("pulse_preferences", { patch: { [key]: value } }).catch(e => { status.textContent = String(e); status.className = "message error"; });
+    void invoke<PulsePreferences>("pulse_preferences", { patch: { [key]: value } }).catch(e => { status.hidden = false; status.textContent = String(e); status.className = "message error"; });
   };
-  const status = el("p", { class: "message", role: "status" });
+  const status = el("p", { class: "message", role: "status", hidden: true });
   return section("AI Pulse", "A clean workspace for AI news, sourced model comparisons and tools. Public news checks happen when you use the hub; background checks are optional and never upload your projects or searches.",
     toggle("Enable AI Pulse", null, () => prefs.enabled, v => persist("enabled", v)),
     toggle("Background news checks", "Off by default. Check public sources every few hours; manage follows and alerts inside AI Pulse.", () => prefs.background, v => persist("background", v)),
-    el("div", { class: "actions" }, button("Open AI Pulse", "primary", () => void invoke("pulse_open").catch(e => { status.textContent = String(e); status.className = "message error"; }))), status
+    el("div", { class: "actions" }, button("Open AI Pulse", "primary", () => void invoke("pulse_open").catch(e => { status.hidden = false; status.textContent = String(e); status.className = "message error"; }))), status
   );
 }
 
@@ -1081,55 +1126,88 @@ function privacySection(info: AppInfo) {
   );
 }
 
-async function main() {
-  const logo = document.getElementById("logo") as HTMLCanvasElement;
-  new PetRenderer(logo).drawStill("happy");
 
-  const [loaded, monitors, info, chars] = await Promise.all([
-    invoke<Settings>("get_settings"),
-    invoke<MonitorInfo[]>("list_monitors"),
-    invoke<AppInfo>("app_info"),
-    invoke<CharacterInfo[]>("characters_list"),
-  ]);
-  settings = loaded;
-  characters = chars;
-  app.replaceChildren(
-    quickConnectSection(),
-    await pulseSection(),
-    hooksSection(
-      "Connect to Claude Code",
-      "Glowby listens through hooks in your Claude Code settings. Hooks fail open: if Glowby is closed or crashes, Claude Code keeps working normally.",
-      { status: "hooks_status", preview: "hooks_preview", apply: "hooks_apply" },
-      "Restart running Claude Code sessions to pick this up.",
-    ),
-    hooksSection(
-      "Connect to Codex",
-      "Glowby follows Codex through hooks. The activity hooks run in the background and never slow Codex down. The permission hook lets you answer Codex's questions on Glowby (or auto-allow them); if Glowby is closed or doesn't answer, Codex shows its normal prompt.",
-      { status: "codex_hooks_status", preview: "codex_hooks_preview", apply: "codex_hooks_apply" },
-      "Restart running Codex sessions, then use /hooks to review and trust Glowby's hooks.",
-    ),
-    await progressSection(),
-    charactersSection(),
-    squadSection(),
-    petSection(monitors),
-    permissionsSection(),
-    autoAllowSection(),
-    usageGuardSection(),
-    await limitsSection(),
-    await detectiveSection(),
-    chatSection(info),
-    quickActionsSection(),
-    helpersSection(),
-    breaksSection(),
-    soundsSection(),
-    briefingSection(),
-    learnSection(),
-    await questsSection(),
-    await githubSection(),
-    performanceSection(info),
-    moodsSection(),
-    privacySection(info),
-  );
+export interface SettingsMountOptions { newsPreferences: () => void; }
+interface SettingsGroup { id: string; name: string; glyph: string; description: string; keywords: string; build: () => Promise<(Node | null)[]>; }
+
+function studioSection(info: ProgressInfo) {
+  const canvas = el("canvas", { class: "studio-pet", "aria-label": "Interactive pet preview", tabindex: "0" });
+  const renderer = new PetRenderer(canvas); previewRenderers.set(canvas, renderer);
+  renderer.setReducedMotion(settings.pet.reducedMotion);
+  const draw = () => renderer.drawStill("happy", chosenLook(info));
+  let stopTimer = 0;
+  const react = (kind: string) => {
+    if (!mounted || document.hidden) return;
+    renderer.setAppearance(chosenLook(info)); renderer.start();
+    if (kind === "pet") renderer.pet(); else renderer.playEmote(kind);
+    window.clearTimeout(stopTimer); stopTimer = window.setTimeout(() => { renderer.stop(); stopTimer = 0; draw(); }, 2200);
+  };
+  canvas.addEventListener("pointermove", () => { if (!stopTimer) react("wave"); });
+  canvas.addEventListener("click", () => react("pet"));
+  canvas.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); react("pet"); } });
+  const paused = () => { if (document.hidden) { window.clearTimeout(stopTimer); stopTimer = 0; renderer.stop(); } };
+  document.addEventListener("visibilitychange", paused);
+  groupCleanups.push(() => { window.clearTimeout(stopTimer); document.removeEventListener("visibilitychange", paused); renderer.stop(); });
+  draw(); refreshStudio = draw;
+  const card = el("section", { class: "studio-stage" },
+    el("div", { class: "studio-canvas" }, canvas),
+    el("div", { class: "studio-copy" }, el("div", { class: "eyebrow", text: "YOUR COMPANION" }),
+      el("h2", { text: "A little personality. Zero AI tokens." }),
+      el("p", { class: "hint", text: "Click the preview to pet it, or try a reaction. The preview rests again after two seconds." }),
+      el("div", { class: "actions" }, button("Wave", "", () => react("wave")), button("Pet", "", () => react("pet")), button("Dance", "", () => react("dance")), button("Show desktop pet", "ghost", () => void invoke("show_pet")))));
+  return card;
 }
 
-void main();
+export async function mountSettings(host: HTMLElement, options: SettingsMountOptions): Promise<() => void> {
+  const generation = ++mountGeneration; mounted = true; app = host; app.classList.add("settings-root");
+  const [loaded, monitors, info, chars] = await Promise.all([
+    invoke<Settings>("get_settings"), invoke<MonitorInfo[]>("list_monitors"), invoke<AppInfo>("app_info"), invoke<CharacterInfo[]>("characters_list")
+  ]);
+  if (generation !== mountGeneration || !host.isConnected) return () => {};
+  settings = loaded; characters = chars;
+  settings.pet.interactions ??= true; settings.pet.reducedMotion ??= false; settings.chat.agent ??= "auto";
+  saveBadge = el("span", { class: "settings-save", role: "status", "aria-live": "polite", text: desktopSettings ? "All changes saved" : "Browser preview · changes stay in this preview" });
+  retrySave = button("Retry", "ghost", save); retrySave.hidden = true;
+  const panel = el("div", { class: "settings-panel" });
+  const navigation = el("nav", { class: "settings-navigation", "aria-label": "Settings categories" });
+  const search = el("input", { type: "search", class: "settings-search", placeholder: "Find a setting…", "aria-label": "Find a setting" });
+  const groups: SettingsGroup[] = [
+    {id:"connections",name:"Connections",glyph:"agents",description:"Claude Code and Codex, side by side.",keywords:"Claude Codex ChatGPT connect hooks install trust backups login",build:async()=>{
+      const advanced=el("details",{class:"settings-advanced"},el("summary",{text:"Individual connections and uninstall controls"}));
+      let opened=false; advanced.addEventListener("toggle",()=>{if(!advanced.open||opened)return;opened=true;advanced.append(
+        hooksSection("Claude Code", "Activity, permissions and Claude's terminal usage status line.",{status:"hooks_status",preview:"hooks_preview",apply:"hooks_apply"},"Restart Claude Code sessions after updating."),
+        hooksSection("Codex", "Activity and permission questions; Codex's own approval policy stays in control.",{status:"codex_hooks_status",preview:"codex_hooks_preview",apply:"codex_hooks_apply"},"Restart Codex, then review and trust Glowby's entries with /hooks."));});
+      return [quickConnectSection(),el("p",{class:"provider-note",text:"Both agents are supported. Glowby follows the most recently active session; Chat settings can pin a provider. ChatGPT web chats do not expose a local session or usage feed."}),advanced];}},
+    {id:"pet",name:"Pet studio",glyph:"sparkle",description:"Your look, reactions and progression.",keywords:"pets anime character hat color colour aura emote wave petting XP progress squad screen monitor motion",build:async()=>[studioSection(await invoke<ProgressInfo>("get_progress")),charactersSection(),petSection(monitors),await progressSection(),squadSection()]},
+    {id:"chat",name:"Chat & actions",glyph:"writing",description:"Use the agent and project you choose.",keywords:"Claude Codex Ask provider chat folder project CLI read only edits quick actions prompt drop files errors test",build:async()=>[chatSection(info),quickActionsSection(),helpersSection()]},
+    {id:"permissions",name:"Permissions",glyph:"check",description:"Questions, timeouts and auto-allow.",keywords:"allow deny approve full auto approval permission safety risk timeout never",build:async()=>[permissionsSection(),autoAllowSection()]},
+    {id:"usage",name:"Usage & savings",glyph:"pulse",description:"Both usage windows, warnings and the detective.",keywords:"Claude Codex limits tokens reset forecast detective guard cache usage compact saving warnings",build:async()=>[await limitsSection(),usageGuardSection(),await detectiveSection()]},
+    {id:"pulse",name:"AI Pulse",glyph:"news",description:"Public sources, follows and news alerts.",keywords:"news models watchlist follow pulse background refresh theme dark light sources bookmark",build:async()=>[await pulseSection(),el("section",{class:"card"},el("h2",{text:"Your news preferences"}),el("p",{class:"intro",text:"Manage followed companies, topics, source health and the shared light or dark theme."}),button("Manage watchlist and theme", "primary",options.newsPreferences))]},
+    {id:"wellbeing",name:"Sounds & breaks",glyph:"audio",description:"Choose when Glowby asks for your attention.",keywords:"audio sound volume mute breaks reminder wellbeing alert notification",build:async()=>[breaksSection(),soundsSection()]},
+    {id:"helpers",name:"Daily helpers",glyph:"clock",description:"Briefings, learning, quests and optional CI.",keywords:"daily briefing git quiz Haiku Claude learn quest tasks GitHub CI token",build:async()=>[briefingSection(),learnSection(),await questsSection(),await githubSection()]},
+    {id:"privacy",name:"Privacy & performance",glyph:"settings",description:"Local data, game mode and diagnostics.",keywords:"performance game fullscreen CPU RAM memory privacy backups local version data telemetry",build:async()=>{ const moods=el("details",{class:"settings-advanced"},el("summary",{text:"Preview moods"}));let loaded=false;moods.addEventListener("toggle",()=>{if(moods.open&&!loaded){loaded=true;moods.append(moodsSection());}});return [performanceSection(info),privacySection(info),moods]; }},
+  ];
+  let selected="connections", buildGeneration=0;
+  async function show(id:string) {
+    const current=++buildGeneration; cleanGroup(); buildingGroup=true; selected=id; search.value="";
+    const group=groups.find(g=>g.id===id)!;
+    navigation.querySelectorAll<HTMLButtonElement>("button").forEach(b=>{b.classList.toggle("selected",b.dataset.group===id);b.setAttribute("aria-current",b.dataset.group===id?"page":"false");});
+    panel.replaceChildren(el("div",{class:"settings-group-heading"},el("div",{class:"eyebrow",text:"GLOWBY SETTINGS"}),el("h2",{text:group.name}),el("p",{text:group.description})),el("p",{class:"hint",text:"Loading settings…"}));
+    try {
+      const nodes=await group.build();
+      if(current!==buildGeneration||generation!==mountGeneration||!host.isConnected){cleanPreviews();return;}
+      buildingGroup=false; panel.lastChild?.remove(); panel.append(...nodes.filter((n):n is Node=>!!n)); cleanPreviews();
+    }catch(e){if(current===buildGeneration) { buildingGroup=false; panel.append(el("p",{class:"message error",text:String(e)}),button("Try again","",()=>void show(id))); } }
+  }
+  for(const group of groups){const b=button(group.name,"settings-category",()=>void show(group.id));b.prepend(icon(group.glyph,15));b.dataset.group=group.id;navigation.append(b);}
+  search.addEventListener("input",()=>{
+    const term=search.value.trim().toLowerCase();if(!term){void show(selected);return;}
+    buildGeneration++;cleanGroup();const found=groups.filter(g=>term.split(/\s+/).every(t=>(g.name+" "+g.keywords).toLowerCase().includes(t)));
+    panel.replaceChildren(el("div",{class:"settings-group-heading"},el("h2",{text:"Find a setting"}),el("p",{text:`${found.length} matching categor${found.length===1?"y":"ies"}`})),...found.map(g=>{const b=button(g.name,"settings-result",()=>void show(g.id));b.prepend(icon(g.glyph));b.append(el("small",{text:g.description}));return b;}));
+    if(!found.length)panel.append(el("p",{class:"hint",text:"Try a feature name such as pet, limits, Claude, Codex or sound."}));
+  });
+  app.replaceChildren(el("header",{class:"settings-header"},el("div",{},el("h1",{text:"Make Glowby yours"}),el("p",{text:"One workspace. Both agents. Your preferences."})),el("div",{class:"settings-save-wrap"},saveBadge,retrySave)),
+    el("div",{class:"settings-toolbar"},icon("search",16),search),el("div",{class:"settings-layout"},navigation,panel));
+  await show("connections");
+  return () => {buildGeneration++; mountGeneration++; mounted=false;buildingGroup=false;flushSave();cleanGroup();};
+}

@@ -318,6 +318,8 @@ pub struct PetSettings {
     /// Thin coloured line at the top edge while Glowby is hidden (blue = working, amber = needs you).
     pub status_line: bool,
     pub follow_mouse: bool,
+    pub interactions: bool,
+    pub reduced_motion: bool,
     pub show_on_permission: bool,
     pub show_on_done: bool,
     pub show_on_attention: bool,
@@ -392,6 +394,8 @@ impl Default for PetSettings {
             position: 0.5,
             status_line: true,
             follow_mouse: true,
+            interactions: true,
+            reduced_motion: false,
             show_on_permission: true,
             show_on_done: true,
             show_on_attention: true,

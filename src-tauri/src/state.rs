@@ -163,6 +163,8 @@ pub struct PetView {
     /// The token detective's case report, while it's open.
     pub case_report: Option<crate::detective::CaseView>,
     pub follow_mouse: bool,
+    pub interactions: bool,
+    pub reduced_motion: bool,
     pub hooks_installed: bool,
     pub game_active: bool,
 }
@@ -241,14 +243,21 @@ impl AppState {
         lock(&self.settings).clone()
     }
 
-    pub fn save_settings(&self, new: Settings) -> Settings {
+    pub fn try_save_settings(&self, new: Settings) -> Result<Settings, String> {
         let clean = new.sanitized();
-        *lock(&self.settings) = clean.clone();
-        if let Err(e) = settings::save_json(&self.paths.settings_file, &clean) {
-            eprintln!("Glowby: couldn't save settings: {e}");
-        }
-        clean
+        let mut current = lock(&self.settings);
+        settings::save_json(&self.paths.settings_file, &clean).map_err(|e| format!("Couldn't save Glowby preferences: {e}"))?;
+        *current = clean.clone();
+        Ok(clean)
     }
+
+    pub fn save_settings(&self, new: Settings) -> Settings {
+        self.try_save_settings(new).unwrap_or_else(|error| {
+            crate::applog::line(error);
+            self.settings()
+        })
+    }
+
 }
 
 /// Keeps Glowby out for `secs` (he hides normally afterwards).
@@ -413,6 +422,8 @@ fn view_and_deadline(app: &AppHandle) -> (PetView, Option<Instant>) {
         limits,
         case_report,
         follow_mouse: settings.pet.follow_mouse,
+        interactions: settings.pet.interactions,
+        reduced_motion: settings.pet.reduced_motion,
         hooks_installed: ui.hooks_installed,
         game_active: ui.game_active,
     };
@@ -446,11 +457,19 @@ pub fn publish(app: &AppHandle) {
     if let Some(text) = tooltip_update {
         tray::set_tooltip(app, &text);
     }
+    if app.get_webview_window(crate::pulse::LABEL).is_some() {
+        let _ = app.emit_to(crate::pulse::LABEL, "companion://view", companion_snapshot(&view));
+    }
     state.timer.send_if_modified(|current| {
         let changed = *current != next_deadline;
         *current = next_deadline;
         changed
     });
+}
+
+/// Compact updates only while the hub exists; no second background UI.
+pub fn companion_snapshot(view: &PetView) -> serde_json::Value {
+    serde_json::json!({"agent":view.chat.agent,"agentMode":view.chat.agent_mode,"chatEnabled":view.chat.enabled,"busy":view.chat.busy,"project":view.chat.project,"limits":view.limits})
 }
 
 /// Forces the next publish to re-send the status-line colour.

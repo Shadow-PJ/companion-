@@ -39,7 +39,8 @@ export function briefing(items: Article[], now = Date.now()) {
     .map(x=>({...x,score:(x.a.impact==="High"?12:0)+(x.a.tags.some(t=>t==="Coding"||t==="Agents")?5:0)+Math.max(0,14-x.age)}))
     .sort((a,b)=>b.score-a.score);
   const picked:Article[]=[], companies=new Set<string>();
-  for(const {a} of scored){if(!companies.has(a.company)){picked.push(a);companies.add(a.company);}if(picked.length===5)break;}
-  for(const {a} of scored){if(picked.length===5)break;if(!picked.some(p=>p.id===a.id))picked.push(a);}
+  const repeatRelease = (a:Article) => a.kind === "release" && picked.some(p=>p.kind==="release"&&p.source===a.source);
+  for(const {a} of scored){if(!repeatRelease(a)&&!companies.has(a.company)){picked.push(a);companies.add(a.company);}if(picked.length===5)break;}
+  for(const {a} of scored){if(picked.length===5)break;if(!repeatRelease(a)&&!picked.some(p=>p.id===a.id))picked.push(a);}
   return picked;
 }

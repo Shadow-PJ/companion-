@@ -22,9 +22,11 @@ async function load(id: string) {
   try {
     // Rust sends the PNG as raw bytes (an ArrayBuffer), no base64 detour.
     const bytes = await invoke<ArrayBuffer>("character_image", { id });
-    setCharacterImage(id, await createImageBitmap(new Blob([bytes], { type: "image/png" })));
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+    if (!cache.has(id)) { bitmap.close(); return; }
+    setCharacterImage(id, bitmap);
   } catch {
-    cache.set(id, "missing");
+    if (cache.has(id)) cache.set(id, "missing");
   }
 }
 
@@ -39,6 +41,7 @@ export function setCharacterImage(id: string, bitmap: ImageBitmap) {
 /** Called when a picture finishes loading (still previews redraw then). */
 export function onImageLoaded(listener: () => void) {
   listeners.add(listener);
+  return () => { listeners.delete(listener); };
 }
 
 /** Frees pictures nobody wears anymore (deleted or swapped characters). */

@@ -34,6 +34,7 @@ const FILE_SUGGESTIONS: [string, string][] = [
 export class Bubble {
   /** Set by main.ts: plays an emote. */
   onEmote: (id: string) => void = () => {};
+  onInteraction: (kind: string) => void = () => {};
   /** Set by main.ts: the selected squad pet changed (it gets a spotlight). */
   onSquadChange: () => void = () => {};
   /** The squad pet whose card is open, if any. */
@@ -79,8 +80,10 @@ export class Bubble {
   private chatActivityText = el("span");
   private chatError = el("div", { class: "error" });
   private chatNotice = el("div", { class: "notice" });
-  private chatInput = el("textarea", { rows: 2, placeholder: "Ask Claude about your project…", maxlength: 8000 });
-  private chatHeading = el("strong", { text: "Ask Claude" });
+  private chatInput = el("textarea", { rows: 2, placeholder: "Ask your agent about your project…", maxlength: 8000 });
+  private chatHeading = el("strong", { text: "Ask your agent" });
+  private agentSelect = el("select", { class: "agent-select", "aria-label": "Chat provider" },
+    el("option", { value: "auto", text: "Auto" }), el("option", { value: "claude", text: "Claude" }), el("option", { value: "codex", text: "Codex" }));
   private chatForm = el("form", { class: "chat-form" });
   private filesKey = "";
 
@@ -406,7 +409,7 @@ export class Bubble {
     chat.disabled = !v.chat.enabled;
     this.squadBox.replaceChildren(
       ...compact(
-        el("div", { class: "eyebrow" }, el("span", { class: `dot ${m.phase}` }), `Squad · ${m.project || "Claude Code"}`),
+        el("div", { class: "eyebrow" }, el("span", { class: `dot ${m.phase}` }), `Squad · ${m.project || "Agent session"}`),
         el("div", { class: "title", text: `${m.name} · Level ${m.level}` }),
         el("div", { class: "line", text: m.activity }),
         el("div", {
@@ -432,6 +435,9 @@ export class Bubble {
 
 
   private buildChat() {
+    this.agentSelect.addEventListener("change", () => {
+      void invoke("chat_select_agent", { agent: this.agentSelect.value, open: false }).catch(e => { this.chatError.textContent=String(e);this.chatError.hidden=false; });
+    });
     const close = button("×", "ghost icon", () => this.closeChat(), "Close (Esc)");
     const stop = button("Stop", "ghost", () => void invoke("chat_cancel"));
     const send = el("button", { class: "btn primary", type: "submit", text: "Send" });
@@ -471,6 +477,7 @@ export class Bubble {
       "div",
       { class: "chat" },
       header,
+      el("div", {class:"agent-choice"}, el("span", {text:"Provider"}), this.agentSelect, el("small", {text:"Uses this agent’s account"})),
       this.chatNotice,
       this.chatFiles,
       this.chatSuggest,
@@ -485,6 +492,8 @@ export class Bubble {
   private renderChat(v: PetView) {
     const c = v.chat;
     const agent = c.agent === "codex" ? "Codex" : "Claude";
+    this.agentSelect.value = c.agentMode;
+    this.agentSelect.disabled = c.busy || !!c.squadName;
     this.chatHeading.textContent = c.squadName ? `Ask ${c.squadName} · ${agent}` : `Ask ${agent}`;
     this.chatProject.textContent = c.hasProject ? `${c.project} ▾` : "Choose folder ▾";
     this.chatProject.title = c.squadName
@@ -620,7 +629,7 @@ export class Bubble {
           "div",
           { class: "actions" },
           ...compact(
-            b.suggestion ? button("Do it with Claude", "primary", () => void invoke("briefing_do")) : null,
+            b.suggestion ? button(`Do it with ${this.view?.chat.agent === "codex" ? "Codex" : "Claude"}`, "primary", () => void invoke("briefing_do")) : null,
             button("Thanks!", b.suggestion ? "ghost" : "primary", () => void invoke("briefing_dismiss")),
           ),
         ),
@@ -814,18 +823,18 @@ export class Bubble {
         s.others > 0 ? el("div", { class: "muted small", text: `+${s.others} other session${s.others > 1 ? "s" : ""}` }) : null,
       ];
     } else {
-      key = `quiet:${v.chat.enabled}:${v.quickActions.length}`;
-      const hints = [v.chat.enabled ? "click me to chat" : "", v.quickActions.length ? "right-click for quick actions" : ""].filter(Boolean);
+      key = `quiet:${v.chat.agent}:${v.chat.agentMode}:${v.chat.enabled}:${v.interactions}`;
+      const hints = ["Stroke my head to pet me", "right-click for more"].filter(Boolean);
       content = [
-        el("div", { class: "line", text: "All quiet." }),
-        hints.length ? el("div", { class: "muted small", text: `${hints.join(" · ")} · drop a file on me` }) : null,
+        el("div", { class: "line", text: `${v.chat.agent === "codex" ? "Codex" : "Claude"} is ready.` }),
+        hints.length ? el("div", { class: "muted small", text: hints.join(" · ") }) : null,
       ];
     }
     // Auto-allow, quietly: one line with a Stop button (timed) under the status.
     const a = v.autoAllow;
     if (a && !v.toast) {
       key += `|auto:${a.full}:${a.minutesLeft}:${a.allowed}:${a.note ?? ""}`;
-      const text = `⚡ ${a.full ? "Full auto" : `Auto-allow · ${a.minutesLeft} min left`} · ${a.allowed} allowed`;
+      const text = `${a.full ? "Auto-allow on" : `Auto-allow · ${a.minutesLeft} min`} ${a.allowed ? `· ${a.allowed} answered` : ""}`;
       content.push(
         el(
           "div",
@@ -836,15 +845,28 @@ export class Bubble {
       );
       if (a.note) content.push(el("div", { class: "muted small", text: a.note }));
     }
-    // Usage is visible automatically with the active agent, without opening a card.
+    // Both providers stay discoverable. Missing numbers are never fabricated.
     if (!v.toast && v.limits) {
-      const name = v.chat.agent === "codex" ? "Codex" : "Claude";
-      const agent = v.limits.agents.find(a => a.agent === name);
-      const window = agent?.windows[0];
-      if (window) {
-        key += `|usage:${name}:${window.usedText}:${window.resetsText}`;
-        content.push(el("div", { class: "muted small" }, `${name} · ${window.label} ${window.usedText} · ${window.resetsText}`, button("Details", "ghost tiny", () => this.openLimits())));
-      }
+      const cards = ["Claude", "Codex"].map(name => {
+        const agent = v.limits!.agents.find(a => a.agent === name), window = agent?.windows[0];
+        const active = (v.chat.agent === "codex" ? "Codex" : "Claude") === name;
+        key += `|usage:${name}:${active}:${window?.usedText}:${window?.resetsText}`;
+        const card = button("", `usage-chip ${active ? "active" : ""}`, () => this.openLimits());
+        card.title = window ? `${window.label} · ${window.resetsText} · ${window.asOf}${window.stale ? " · old reading" : ""}` : agent?.emptyHint ?? "No usage reading yet.";
+        card.append(el("span", {text:name}), el("strong", {text:window?.usedText ?? "No reading yet"}));
+        if(window?.used!==null && window?.used!==undefined)card.append(el("span",{class:"usage-track"},el("i",{style:`width:${Math.max(0,Math.min(100,window.used))}%`})));
+        return card;
+      });
+      content.push(el("div", {class:"usage-pair"}, ...cards));
+    }
+    if (!v.toast && v.interactions) {
+      key += `|interactions:${v.emotes.map(e=>e.id).join(",")}`;
+      const agent = v.chat.agent === "codex" ? "Codex" : "Claude";
+      content.push(el("div", {class:"pet-controls", "aria-label":"Pet interactions"},
+        button(`Ask ${agent}`, "primary tiny", () => this.openChat()),
+        button("Wave", "ghost tiny", () => this.onInteraction("wave")),
+        button("Pet", "ghost tiny", () => this.onInteraction("pet")),
+        button("Play", "ghost tiny", () => { const choices=v.emotes.map(e=>e.id);this.onInteraction(choices[Math.floor(Math.random()*choices.length)] ?? "wave"); }, "Play an unlocked emote")));
     }
     // Level, XP bar, streak and quests under the status (not on toasts).
     const p = v.toast ? null : v.progress;

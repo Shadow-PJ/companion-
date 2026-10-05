@@ -127,6 +127,7 @@ export interface Attachment {
 
 export interface ChatView {
   agent: "claude" | "codex";
+  agentMode: "auto" | "claude" | "codex";
   enabled: boolean;
   busy: boolean;
   reply: string;
@@ -198,6 +199,8 @@ export interface PetView {
   /** The token detective's case report, while it's open. */
   caseReport: CaseReport | null;
   followMouse: boolean;
+  interactions: boolean;
+  reducedMotion: boolean;
   hooksInstalled: boolean;
   gameActive: boolean;
 }
@@ -211,6 +214,8 @@ export interface Settings {
     position: number;
     statusLine: boolean;
     followMouse: boolean;
+    interactions: boolean;
+    reducedMotion: boolean;
     showOnPermission: boolean;
     showOnDone: boolean;
     showOnAttention: boolean;

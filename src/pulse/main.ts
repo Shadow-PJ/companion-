@@ -2,6 +2,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { el } from "../shared/dom";
 import catalog from "./catalog.json";
+import type { HooksStatus, LimitsView } from "../shared/types";
 import { benchmarkFor, briefing as buildBriefing, ranked, search } from "./search";
 import { categories, defaultPreferences, topics } from "./types";
 import type { Article, Cache, Model, Page, Preferences, Tool, View } from "./types";
@@ -16,7 +17,7 @@ const nav: {id:Page;name:string;glyph:string;key:string}[] = [
   {id:"saved",name:"Saved",glyph:"saved",key:"7"},
 ];
 let view: View = {cache:{...catalog,benchmarks:[],sources:[],lastChecked:"",changes:[],lastAttempt:0} as Cache,preferences:{...defaultPreferences},refreshing:false};
-let page: Page = "home", topic="All", company="All", metric="Intelligence", toolCategory="All", freeOnly=false;
+let page: Page = location.pathname.endsWith("settings.html") || new URLSearchParams(location.search).get("page") === "settings" ? "settings" : new URLSearchParams(location.search).get("page") === "preferences" ? "preferences" : "home", topic="All", company="All", metric="Intelligence", toolCategory="All", freeOnly=false;
 let query="", left="claude-sonnet-5-5", right="gpt-6.1-sol", pending=false;
 let inputTokens=100000,outputTokens=10000;
 const content=el("main",{id:"content",tabindex:"-1"});
@@ -26,6 +27,11 @@ const toast=el("div",{class:"snackbar",role:"status","aria-live":"polite",hidden
 const unread=el("span",{class:"unread-dot",hidden:true});
 const breadcrumb=el("span",{class:"breadcrumb",text:"AI Pulse"});
 let toastTimer=0;
+let disposeSettings: (()=>void)|null=null, settingsLoad=0;
+let companion:{agent:"claude"|"codex";agentMode:"auto"|"claude"|"codex";chatEnabled:boolean;busy:boolean;project:string;limits:LimitsView|null}={agent:"claude",agentMode:"auto",chatEnabled:true,busy:false,project:"",limits:null};
+let connections:Record<string,HooksStatus|null>={claude:null,codex:null};
+let companionNode:HTMLElement|null=null;
+
 
 function message(text:string) { toast.textContent=text;toast.hidden=false;window.clearTimeout(toastTimer);toastTimer=window.setTimeout(()=>toast.hidden=true,5000); }
 function source(url:string) { if(desktop)void invoke("pulse_open_source",{url}).catch(e=>message(String(e)));else window.open(url,"_blank","noopener,noreferrer"); }
@@ -37,14 +43,15 @@ function follows(a:Article) {
 }
 function watched() { return articles().filter(follows); }
 function unreadArticles() { return watched().filter(a=>!view.preferences.read.includes(a.id)); }
-function jump(next:Page) { page=next;sidebar.classList.remove("mobile-open");render();content.scrollTop=0; }
+function needsSourceCheck() { return view.cache.sourceRevision !== 1 || Date.now()-Date.parse(view.cache.lastChecked||"1970-01-01")>6*3600000; }
+function jump(next:Page) { if(next===page&&page==="settings")return;page=next;sidebar.classList.remove("mobile-open");render();content.scrollTop=0;if(desktop&&next==="home"&&view.preferences.enabled&&needsSourceCheck())void refresh(); }
 
 async function preferences(change:Partial<Preferences>) {
   const next={...view.preferences,...change};
   try {
     const saved=desktop?await invoke<Preferences>("pulse_preferences",{patch:change}):next;
     if(!desktop)localStorage.setItem("glowby-pulse-preview-preferences",JSON.stringify(saved));
-    view.preferences=saved;applyTheme();render();return true;
+    view.preferences=saved;applyTheme();if(page!=="settings")render();return true;
   }catch(e){message(String(e));return false;}
 }
 function toggleSaved(id:string) {
@@ -76,17 +83,17 @@ function select(label:string,values:{value:string;label:string}[],chosen:string,
 function skeleton() { return el("div",{class:"skeleton-grid","aria-label":"Loading AI Pulse"},...Array.from({length:5},()=>el("div",{class:"skeleton"}))); }
 
 function shell() {
-  const brand=el("div",{class:"brand"},el("div",{class:"glowby-logo"},icon("pulse",24)),el("strong",{text:"glowby"}),el("span",{text:"PULSE",class:"brand-tag"}));
+  const brand=el("div",{class:"brand"},el("div",{class:"glowby-logo"},icon("pulse",24)),el("strong",{text:"glowby"}),el("span",{text:"WORKSPACE",class:"brand-tag"}));
   const navigation=el("nav",{},...nav.map(n=>{
     const b=btn(n.name,()=>jump(n.id),"nav-item",n.glyph);b.dataset.page=n.id;b.title=`Alt + ${n.key}`;return b;
   }));
   const following=el("div",{class:"following"},el("div",{class:"sidebar-label",text:"YOUR SIGNAL"}),...['OpenAI','Anthropic','Google'].map(name=>{
     const b=btn(name,()=>{company=name;topic="All";jump("news");},"company-link");b.prepend(mark(name,"small"));return b;
-  }),btn("Manage watchlist",()=>jump("settings"),"manage-link","plus"));
-  sidebar.append(brand,navigation,following,el("div",{class:"sidebar-footer"},btn("Preferences",()=>jump("settings"),"nav-item","settings"),el("div",{class:"local-note"},icon("check",12),"Personal. Local. Source-backed.")));
-  const command=btn("Search or ask anything…",()=>palette(),"top-search","search");command.append(el("kbd",{text:"Ctrl K"}));
+  }),btn("Manage watchlist",()=>jump("preferences"),"manage-link","plus"));
+  sidebar.append(brand,navigation,following,el("div",{class:"sidebar-footer"},Object.assign(btn("Settings",()=>jump("settings"),"nav-item","settings"),{title:"Companion and news settings"}),el("div",{class:"local-note"},icon("check",12),"Personal. Local. Source-backed.")));
+  const command=btn("Search news, models and tools…",()=>palette(),"top-search","search");command.append(el("kbd",{text:"Ctrl K"}));
   const alerts=iconButton("Your watchlist updates","bell",()=>notifications());alerts.append(unread);
-  const topbar=el("header",{class:"topbar"},iconButton("Toggle sidebar","menu",()=>sidebar.classList.toggle("mobile-open")),breadcrumb,command,el("div",{class:"top-actions"},syncStatus,iconButton("Change theme","moon",()=>void preferences({theme:document.documentElement.dataset.theme==="dark"?"light":"dark"})),alerts,btn("PJ",()=>jump("settings"),"avatar")));
+  const topbar=el("header",{class:"topbar"},iconButton("Toggle sidebar","menu",()=>sidebar.classList.toggle("mobile-open")),breadcrumb,command,el("div",{class:"top-actions"},syncStatus,iconButton("Change theme","moon",()=>void preferences({theme:getComputedStyle(document.documentElement).colorScheme.includes("dark")?"light":"dark"})),alerts,iconButton("Open settings","settings",()=>jump("settings"))));
   document.getElementById("app")!.replaceChildren(sidebar,el("div",{class:"workspace"},topbar,content),toast);
 }
 
@@ -109,26 +116,49 @@ function detail(a:Article) {
     el("div",{class:"source-foot"},el("strong",{text:a.source}),el("p",{text:`Published ${stamp(a.published)} · fetched ${stamp(a.checked)}. Headline and short excerpt from the original publisher. Follow the source for the full details.`}))),"News detail");
 }
 
+async function chooseAgent(agent:"auto"|"claude"|"codex",open=false) {
+  if(!desktop){message("Agent chat uses your existing login in the desktop app. Local source search works here without AI tokens.");return;}
+  try{await invoke("chat_select_agent",{agent,open});companion=await invoke("companion_status");updateCompanion();if(open)message(`Chat opened with ${agent==="codex"?"Codex":agent==="claude"?"Claude":"your active agent"}. Sending a message uses that account's quota.`);}catch(e){message(String(e));}
+}
+function companionPanel() {
+  companionNode=el("section",{class:"companion-panel","aria-label":"Claude Code and Codex"});updateCompanion();return companionNode;
+}
+function updateCompanion() {
+  if(!companionNode)return;
+  const mode=el("select",{"aria-label":"Chat provider"},el("option",{value:"auto",text:"Auto · active agent"}),el("option",{value:"claude",text:"Claude Code"}),el("option",{value:"codex",text:"Codex"}));mode.value=companion.agentMode;mode.disabled=companion.busy;mode.addEventListener("change",()=>void chooseAgent(mode.value as "auto"|"claude"|"codex"));
+  const agents=(["claude","codex"] as const).map(agent=>{
+    const name=agent==="claude"?"Claude Code":"Codex",status=connections[agent];
+    const data=companion.limits?.agents.find(a=>a.agent===(agent==="claude"?"Claude":"Codex")),window=data?.windows[0];
+    const connected=status?.state==="installed",active=companion.agent===agent;
+    const action=btn(`Ask ${agent==="claude"?"Claude":"Codex"}`,()=>void chooseAgent(agent,true),"quiet","arrow");action.disabled=companion.busy||!companion.chatEnabled;
+    return el("div",{class:`agent-cell ${active?"active":""}`},el("div",{class:"agent-name"},mark(agent==="claude"?"Anthropic":"OpenAI","small"),el("strong",{text:name}),active?pill("Active","accent"):null),
+      el("span",{class:"agent-connection",text:!desktop?"Desktop integration available":status?connected?"Connected":status.state==="outdated"?"Update connection":"Connect in Settings":"Checking connection…"}),
+      el("div",{class:"agent-usage",text:window?`${window.label} · ${window.usedText}`:desktop?"Waiting for reported usage":"Usage available in desktop app"}),
+      el("small",{text:window?`${window.resetsText}${window.stale?" · older reading":""}`:"Percentages appear only when your agent reports them."}),action);
+  });
+  companionNode.replaceChildren(el("div",{class:"companion-heading"},el("div",{},el("h2",{text:"Your agents"}),el("p",{text:companion.project?`Project · ${companion.project}`:"Claude Code and Codex. Each uses its own account and conversation."})),mode),el("div",{class:"agent-grid"},...agents),el("div",{class:"companion-foot"},el("span",{text:"Source search is local and free of AI tokens. Agent chat uses your account's usage."}),btn("Manage connections",()=>jump("settings"),"text-link","settings")));
+}
+
 function home() {
   const hour=new Date().getHours(),greeting=hour<12?"Good morning":hour<18?"Good afternoon":"Good evening";
   const today=new Date().toLocaleDateString(undefined,{weekday:"long",month:"long",day:"numeric"});
   const recent=watched();const brief=buildBriefing(recent); const top=ranked(view.cache,"Intelligence")[0];
-  const input=el("input",{type:"search",placeholder:"Ask anything about AI…","aria-label":"Ask anything about AI",autocomplete:"off"});
-  const form=el("form",{class:"ask-bar"},icon("sparkle",21),input,btn("Ask Glowby",()=>ask(input.value),"primary","arrow"));
+  const input=el("input",{type:"search",placeholder:"Search AI news, models and tools…","aria-label":"Search AI sources",autocomplete:"off"});
+  const form=el("form",{class:"ask-bar"},icon("sparkle",21),input,btn("Search sources",()=>ask(input.value),"primary","arrow"));
   form.addEventListener("submit",e=>{e.preventDefault();ask(input.value);});
   const intro=el("section",{class:"home-intro"},el("div",{class:"eyebrow"},el("span",{class:"live-dot"}),"YOUR DAILY AI SIGNAL",el("span",{class:"intro-date",text:today})),
     el("h1",{},greeting,el("span",{class:"muted",text:". Stay a step ahead."})),el("p",{text:"The updates worth your attention. The context to make them useful."}),form,
-    el("div",{class:"suggestions"},el("span",{text:"Try asking"}),...['What happened with OpenAI this week?','GPT vs Claude for React','Free AI for making videos'].map(q=>btn(q,()=>ask(q),"suggestion"))));
+    el("div",{class:"suggestions"},el("span",{text:"Try searching"}),...['What happened with Anthropic this week?','What happened with OpenAI this week?','Claude vs GPT for React','Free AI for making videos'].map(q=>btn(q,()=>ask(q),"suggestion"))));
   const summary=el("div",{class:"summary-strip"},
     el("div",{class:"summary-cell"},icon("pulse"),el("span",{class:"tiny-label",text:"ON YOUR RADAR"}),el("strong",{text:String(unreadArticles().length)}),el("span",{text:"unread updates"})),
     el("div",{class:"summary-cell"},icon("models"),el("span",{class:"tiny-label",text:"INTELLIGENCE INDEX"}),el("strong",{class:"summary-model",text:top?.name.split(" (")[0]??"Check the latest"}),el("span",{text:top?"Leading the measured snapshot":"Refresh to load the benchmark"})),
     el("div",{class:"summary-cell"},icon("tools"),el("span",{class:"tiny-label",text:"WORTH EXPLORING"}),el("strong",{text:`${view.cache.tools.length} tools`}),el("span",{text:"Across ten kinds of work"})),
   );
-  const briefing=el("section",{class:"briefing-panel"},sectionHeading("Your 60-second briefing","Five things from your watchlist",btn("Read the feed",()=>jump("news"),"text-link","arrow")),
+  const briefing=el("section",{class:"briefing-panel"},sectionHeading("Your 60-second briefing",`${brief.length} updates from your watchlist`,btn("Read the feed",()=>jump("news"),"text-link","arrow")),
     ...brief.map((a,i)=>el("button",{type:"button",class:"briefing-item","aria-label":a.title},el("span",{class:"brief-number",text:String(i+1).padStart(2,"0")}),el("span",{class:"brief-copy"},el("strong",{text:a.title}),el("span",{text:`${a.company} · ${relative(a.published)}`})),icon("arrow",15))));
   briefing.querySelectorAll<HTMLButtonElement>(".briefing-item").forEach((b,i)=>b.addEventListener("click",()=>detail(brief[i])));
   if(!brief.length)briefing.append(empty("Your watchlist is quiet","Refresh the sources, or follow more companies in Preferences."));
-  const trending=el("section",{class:"trending"},sectionHeading("In the conversation","Recent announcements from your sources",btn("All news",()=>jump("news"),"text-link","arrow")),...recent.filter(a=>a.kind!=="release").slice(0,4).map(a=>articleRow(a)));
+  const trending=el("section",{class:"trending"},sectionHeading("Worth reading","Recent announcements from your sources",btn("All news",()=>jump("news"),"text-link","arrow")),...buildBriefing(recent.filter(a=>a.kind!=="release")).slice(0,4).map(a=>articleRow(a)));
   const fitting=view.cache.tools.filter(t=>t.categories.some(c=>view.preferences.topics.includes(c)));
   const choices=fitting.length?fitting:view.cache.tools;
   const todayPick=choices[Math.floor(Date.now()/86400000)%choices.length];
@@ -140,7 +170,7 @@ function home() {
     }),btn("Release timeline",()=>jump("releases"),"text-link","arrow")),
   );
   const lead=el("section",{class:"home-leaderboard"},sectionHeading("Model leaderboard","One view of quality, speed and task cost",btn("Compare models",()=>jump("arena"),"text-link","arena")),leaderboard(true));
-  content.append(intro,summary,el("div",{class:"home-columns"},el("div",{class:"main-column"},briefing,trending),rail),lead);
+  content.append(intro,companionPanel(),summary,el("div",{class:"home-columns"},el("div",{class:"main-column"},briefing,trending),rail),lead);
 }
 
 function news(saved=false,releases=false) {
@@ -253,7 +283,7 @@ function preferenceRow(label:string,detail:string,key:"enabled"|"background"|"al
   checkbox.addEventListener("change",()=>void preferences({[key]:checkbox.checked}));
   return el("label",{class:"preference-row"},el("span",{},el("strong",{text:label}),el("small",{text:detail})),checkbox);
 }
-function settingsPage() {
+function newsPreferences() {
   title("Make the signal yours","Choose what to follow, when to check, and how Glowby tells you.");
   const p=view.preferences;
   const companies=[...new Set(["OpenAI","Anthropic","Google","Meta","Hugging Face",...view.cache.articles.map(a=>a.company)])];
@@ -282,8 +312,8 @@ function palette() {
   const results=el("div",{class:"command-results",role:"listbox"});let selected=0;
   const update=()=>{
     const q=input.value.trim().toLowerCase();selected=0;
-    const buttons=nav.filter(n=>!q||n.name.toLowerCase().includes(q)).map(n=>btn(n.name,()=>{closeDialog();jump(n.id);},"command-item",n.glyph));
-    if(q){buttons.push(btn(`Ask Glowby: ${input.value}`,()=>{closeDialog();ask(input.value);},"command-item","sparkle"));buttons.push(...view.cache.tools.filter(t=>t.name.toLowerCase().includes(q)).slice(0,5).map(t=>btn(t.name,()=>{closeDialog();toolDetail(t);},"command-item","tools")));}
+    const buttons=[...nav,{id:"settings" as Page,name:"Settings",glyph:"settings",key:"8"},{id:"preferences" as Page,name:"News preferences",glyph:"news",key:"9"}].filter(n=>!q||n.name.toLowerCase().includes(q)).map(n=>btn(n.name,()=>{closeDialog();jump(n.id);},"command-item",n.glyph));
+    if(q){buttons.push(btn(`Search sources: ${input.value}`,()=>{closeDialog();ask(input.value);},"command-item","sparkle"));buttons.push(...view.cache.tools.filter(t=>t.name.toLowerCase().includes(q)).slice(0,5).map(t=>btn(t.name,()=>{closeDialog();toolDetail(t);},"command-item","tools")));}
     results.replaceChildren(...buttons);highlight();
   };
   const highlight=()=>results.querySelectorAll<HTMLButtonElement>("button").forEach((b,i)=>{b.classList.toggle("selected",i===selected);b.setAttribute("aria-selected",String(i===selected));});
@@ -291,15 +321,21 @@ function palette() {
   openDialog(el("div",{class:"command-content"},el("div",{class:"command-input"},icon("search"),input),results,el("div",{class:"command-footer"},"↑ ↓ to move",el("span",{text:"Enter to open · Esc to close"}))),"Search AI Pulse",true);update();input.focus();
 }
 function render() {
+  settingsLoad++; disposeSettings?.(); disposeSettings=null;companionNode=null;
   sidebar.querySelectorAll<HTMLButtonElement>("[data-page]").forEach(b=>{b.classList.toggle("active",b.dataset.page===page);if(b.dataset.page===page)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current");});
-  breadcrumb.textContent=page==="search"?"Ask Glowby":page==="settings"?"Preferences":nav.find(n=>n.id===page)?.name??"AI Pulse";
+  breadcrumb.textContent=page==="search"?"Source search":page==="settings"?"Settings":page==="preferences"?"News preferences":nav.find(n=>n.id===page)?.name??"AI Pulse";
   syncStatus.replaceChildren(el("span",{class:view.refreshing?"sync-dot busy":"sync-dot"}),view.refreshing?"Checking sources…":view.cache.lastChecked?`Checked ${stamp(view.cache.lastChecked)} ${new Date(view.cache.lastChecked).toLocaleTimeString(undefined,{hour:"2-digit",minute:"2-digit"})}`:"Sources not checked");
   unread.hidden=unreadArticles().length===0;
+  const settingsButton=sidebar.querySelector<HTMLButtonElement>('.sidebar-footer .nav-item');if(settingsButton){settingsButton.classList.toggle("active",page==="settings"||page==="preferences");settingsButton.setAttribute("aria-current",page==="settings"||page==="preferences"?"page":"false");}
   content.replaceChildren();
   if(!desktop)content.append(el("div",{class:"preview-label",text:"Browser preview · local bookmarks · desktop alerts and live refresh run in Glowby"}));
-  if(!view.preferences.enabled&&page!=="settings"){content.append(empty("AI Pulse is paused","Enable the hub in Preferences to read or refresh.",btn("Open Preferences",()=>jump("settings"),"primary")));return;}
-  if(page==="home")home();else if(page==="news")news();else if(page==="saved")news(true);else if(page==="releases")news(false,true);else if(page==="models")modelsPage();else if(page==="arena")arena();else if(page==="tools")toolsPage();else if(page==="search")searchPage();else settingsPage();
-  if(view.cache.sources.some(s=>!s.ok))content.append(el("div",{class:"partial-error"},icon("clock"),"Some sources could not be checked. Previous material keeps its original date. ",btn("View sources",()=>jump("settings"),"text-link")));
+  if(!view.preferences.enabled&&page!=="settings"&&page!=="preferences"){content.append(empty("AI Pulse is paused","Enable the hub in Preferences to read or refresh.",btn("Open Preferences",()=>jump("preferences"),"primary")));return;}
+  if(page==="settings") {
+    const current=settingsLoad;const host=el("div",{class:"settings-mount"});content.append(host,skeleton());
+    void import("../settings/main").then(module=>{if(current!==settingsLoad)return;content.lastChild?.remove();return module.mountSettings(host,{newsPreferences:()=>jump("preferences")});}).then(dispose=>{if(!dispose)return;if(current===settingsLoad)disposeSettings=dispose;else dispose();}).catch(e=>{if(current===settingsLoad)host.replaceChildren(empty("Couldn't open settings",String(e)));});return;
+  }
+  if(page==="home")home();else if(page==="news")news();else if(page==="saved")news(true);else if(page==="releases")news(false,true);else if(page==="models")modelsPage();else if(page==="arena")arena();else if(page==="tools")toolsPage();else if(page==="search")searchPage();else newsPreferences();
+  if(view.cache.sources.some(s=>!s.ok))content.append(el("div",{class:"partial-error"},icon("clock"),"Some sources could not be checked. Previous material keeps its original date. ",btn("View sources",()=>jump("preferences"),"text-link")));
   const refreshButton=btn(view.refreshing?"Checking…":"Refresh sources",()=>void refresh(),"footer-refresh","refresh");refreshButton.disabled=view.refreshing;
   content.append(el("footer",{class:"page-footer"},el("span",{},"Fewer tabs. A clearer picture.",el("small",{text:"A personal AI desk, by Glowby."})),refreshButton));
 }
@@ -318,13 +354,21 @@ document.addEventListener("keydown",e=>{
 async function start() {
   shell();content.append(skeleton());
   try{
-    if(desktop){view=await invoke<View>("pulse_view");await listen<View>("pulse://view",e=>{view=e.payload;applyTheme();render();});}
+    if(desktop){
+      view=await invoke<View>("pulse_view");
+      await listen<View>("pulse://view",e=>{view=e.payload;applyTheme();if(page!=="settings")render();});
+      await listen<string>("pulse://navigate",e=>jump(e.payload as Page));
+      await listen<typeof companion>("companion://view",e=>{companion=e.payload;updateCompanion();});
+      companion=await invoke("companion_status");
+      const statuses=await Promise.allSettled([invoke<HooksStatus>("hooks_status"),invoke<HooksStatus>("codex_hooks_status")]);
+      connections.claude=statuses[0].status==="fulfilled"?statuses[0].value:null;connections.codex=statuses[1].status==="fulfilled"?statuses[1].value:null;
+    }
     else{
       try{const saved=localStorage.getItem("glowby-pulse-preview-preferences");if(saved)view.preferences={...defaultPreferences,...JSON.parse(saved)};}catch{/* defaults */}
       const res=await fetch("/src/pulse/preview-live.json");if(res.ok)view.cache=await res.json();
     }
     applyTheme();render();
-    if(desktop&&view.preferences.enabled&&(Date.now()-Date.parse(view.cache.lastChecked||"1970-01-01")>6*3600000))void refresh();
+    if(desktop&&page!=="settings"&&page!=="preferences"&&view.preferences.enabled&&needsSourceCheck())void refresh();
   }catch(e){content.replaceChildren(empty("Couldn't open AI Pulse",String(e),btn("Try again",()=>void start(),"primary")));}
 }
 void start();

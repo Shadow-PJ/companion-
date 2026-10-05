@@ -20,7 +20,8 @@ const CHIBI_BODY_Y = 54;
 /** Tall hats need Glowby to sit a little lower so the hat stays on screen. */
 const HAT_LIFT: Record<string, number> = { sprout: 10, party: 18, wizard: 24, gradcap: 10, crown: 9, beanie: 7, headphones: 3, detective: 10 };
 /** Never draw more often than 60 times a second, even on 144 Hz screens. */
-const MIN_FRAME_MS = 1000 / 60 - 1;
+const ACTIVE_FRAME_MS = 1000 / 60 - 1;
+const IDLE_FRAME_MS = 1000 / 24 - 1;
 const EMOTE_SECONDS = 1.8;
 const FLOATER_SECONDS = 1.5;
 
@@ -67,15 +68,31 @@ export class PetRenderer {
   private nextHeart = 0;
   private nextIdle = 0;
   private lastGreeting = -1e9;
+  private reducedMotion = false;
+  private frameTimer = 0;
+  private greetingTimer = 0;
+  private unsubscribeImage: () => void;
+  private resolution = matchMedia(`(resolution: ${devicePixelRatio}dppx)`);
+  private resolutionChanged = () => this.resize();
 
   constructor(private canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext("2d")!;
     this.resize();
-    matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener("change", () => this.resize());
+    this.resolution.addEventListener("change", this.resolutionChanged);
     // A still preview drawn before its picture loaded: draw it again once it's there.
-    onImageLoaded(() => {
+    this.unsubscribeImage = onImageLoaded(() => {
       if (this.still && !this.running) this.drawStill(this.still);
     });
+  }
+
+  setReducedMotion(value: boolean) { this.reducedMotion = value || matchMedia("(prefers-reduced-motion: reduce)").matches; }
+
+  dispose() {
+    this.stop();
+    this.unsubscribeImage();
+    this.resolution.removeEventListener("change", this.resolutionChanged);
+    this.onFrame = null;
+    this.canvas.width = this.canvas.height = 1;
   }
 
   /** Sharp drawing on high-DPI screens: more device pixels, same CSS size. */
@@ -140,12 +157,13 @@ export class PetRenderer {
     this.running = true;
     this.still = null;
     this.lastFrame = performance.now();
+    this.lastDraw = 0;
     this.raf = requestAnimationFrame(this.frame);
     // Say hi when sliding out (not every time you hover by).
     const now = performance.now() / 1000;
     if (now - this.lastGreeting > 90) {
       this.lastGreeting = now;
-      window.setTimeout(() => {
+      this.greetingTimer = window.setTimeout(() => {
         if (this.running && !this.emote && this.mood !== "alert" && this.mood !== "sick") this.playEmote("wave");
       }, 450);
     }
@@ -155,6 +173,8 @@ export class PetRenderer {
   stop() {
     this.running = false;
     cancelAnimationFrame(this.raf);
+    window.clearTimeout(this.frameTimer);
+    window.clearTimeout(this.greetingTimer);
     this.emote = null;
     this.floaters = [];
     this.hearts = [];
@@ -163,7 +183,7 @@ export class PetRenderer {
 
   /** Now and then, while idle, do something small on your own. */
   private idleLife(t: number) {
-    if (!this.running || this.emote || t < this.nextIdle) return;
+    if (!this.running || this.reducedMotion || this.emote || t < this.nextIdle) return;
     this.nextIdle = t + 10 + Math.random() * 14;
     if (this.mood !== "idle" && this.mood !== "happy") return;
     if (t < this.petUntil) return;
@@ -182,8 +202,14 @@ export class PetRenderer {
 
   private frame = (now: number) => {
     if (!this.running) return;
-    this.raf = requestAnimationFrame(this.frame);
-    if (now - this.lastDraw < MIN_FRAME_MS) return;
+    const lively = !!this.emote || now / 1000 < this.petUntil || this.floaters.length > 0;
+    const interval = this.reducedMotion ? (lively ? 1000 / 30 : 1000 / 6) : lively ? ACTIVE_FRAME_MS : IDLE_FRAME_MS;
+    const remaining = interval - (now - this.lastDraw);
+    if (remaining > 1) {
+      this.frameTimer = window.setTimeout(() => { if (this.running) this.raf = requestAnimationFrame(this.frame); }, remaining);
+      return;
+    }
+    this.frameTimer = window.setTimeout(() => { if (this.running) this.raf = requestAnimationFrame(this.frame); }, Math.max(0, interval - 8));
     const dt = Math.min((now - this.lastFrame) / 1000, 0.1);
     this.lastFrame = now;
     this.lastDraw = now;
@@ -217,7 +243,7 @@ export class PetRenderer {
     const y = this.bodyY();
     ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
     const frame = {
-      t,
+      t: this.reducedMotion ? 1.2 : t,
       moodAge: t - this.moodSince,
       mood: this.mood,
       style: this.style,
@@ -234,11 +260,12 @@ export class PetRenderer {
     const auraY = a.character ? y : chibi ? y + 16 : y + 6;
     const auraR = a.character ? AVATAR_R + 3 : chibi ? 40 : 38;
     const power = (this.mood === "sleepy" ? 0.45 : 1) * (a.weak ? 0.6 : 1);
-    drawAura(ctx, a.aura, BODY_X, auraY, auraR, t, "back", power);
+    const motionTime = this.reducedMotion ? 1.2 : t;
+    drawAura(ctx, a.aura, BODY_X, auraY, auraR, motionTime, "back", power);
     if (a.character) drawAvatar(ctx, frame, characterImage(a.character));
     else if (chibi) drawChibi(ctx, frame, a.species, a.color);
     else drawGlowby(ctx, frame);
-    drawAura(ctx, a.aura, BODY_X, auraY, auraR, t, "front", power);
+    drawAura(ctx, a.aura, BODY_X, auraY, auraR, motionTime, "front", power);
     this.drawHearts(t, petting, y);
     this.drawFloaters(t);
   }

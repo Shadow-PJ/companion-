@@ -14,13 +14,33 @@ messages that would waste your AI usage, tells you the moment a limit hits (and 
 back), and levels up as you code.
 
 Glowby hides at the top edge and slides out when you hover there. He's drawn entirely
-in code (no image files). The v0.6 local release measured 86.9 MB of RAM and 0.00%
-average CPU while hidden, including WebView2 helpers, with AI Pulse closed. Companion
+in code (no image files). The v0.6.1 local release measured 64.1 MB of RAM and 0.002%
+average CPU in a 45-second hidden sample, including WebView2 helpers, with the hub closed. Companion
 data stays on your PC. Chat uses your agent account; AI Pulse reads public
 news sources when you open it or opt into background checks.
 
-> **Early version (v0.6, in development).** Glowby is new and improving every week, so expect rough edges.
+> **Early version (v0.6.1, local development build).** Glowby is new and improving every week, so expect rough edges.
 > Ideas and bug reports are very welcome: [open an issue](https://github.com/Shadow-PJ/glowby/issues).
+
+## A calmer workspace in v0.6.1
+
+* **One hub:** Settings opens inside AI Pulse. Categories and “Find a setting” replace
+  the long scrolling page; individual hook controls stay available under Connections.
+* **Both agents:** Home has Claude Code and Codex panels, individual chat buttons and
+  usage readings. Chat's provider picker can pin either agent or return to Auto.
+* **Better Claude news:** featured Anthropic announcements are read as well as normal
+  newsroom entries. The briefing includes at most one patch release per CLI source.
+* **Pet studio and direct reactions:** Wave, Pet and Play beside the desktop pet,
+  plus a short interactive preview in Settings → Pet studio. These reactions use no AI.
+* **Less idle drawing:** visible ambient animation is capped at 24 fps; short reactions
+  use up to 60 fps. Hidden pets stop entirely. Reduced motion is available, previews
+  release their canvases and listeners, and imported images are freed when leaving a
+  category. Settings and news share the same light/dark theme and webview.
+* **Reliable saving:** a visible Saved/Saving indicator, with Retry for disk errors.
+
+Source search is local retrieval, not a ChatGPT chat. Sending a message with **Ask Claude**
+or **Ask Codex** uses the selected agent's existing account and quota. Exact limit
+percentages only appear when the provider reports them; missing values stay unknown.
 
 ## Download
 

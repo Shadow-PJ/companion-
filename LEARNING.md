@@ -722,3 +722,53 @@ slightly above the original ~80 MB target. An earlier active sample was 85.9 MB 
 1.53% CPU; it was not a confirmed hidden sample. Opening the hub or animating the
 pet uses additional resources. These are local measurements, not a guarantee for
 every Windows installation.
+
+
+## v0.6.1 — One hub, both agents, lightweight personality
+
+Settings now uses the same Pulse window. Its module loads only on request and builds
+one category at a time, so opening Connections does not allocate every pet preview.
+Closing the hub destroys that webview. Switching categories disposes renderers,
+resolution/image listeners, timers and decoded imported images. Loading an image after
+its category was closed releases the bitmap instead of caching it again.
+
+Home makes the two integrations explicit: Claude Code and Codex each have a chat
+button and usage display. A deliberate provider choice persists through the existing
+chat preference; Auto follows activity. The hub receives a compact companion snapshot
+only while its window exists. Hook trust, approval modes, backups and diff review remain
+the agent integration's existing responsibility; these UI changes do not install hooks.
+
+Anthropic's featured announcements use root URLs such as `/claude-sonnet-5-5`, rather
+than `/news/...`. The parser now accepts dated headings on official relative links and
+deduplicates only successful entries. Briefings avoid several patch versions of the
+same CLI. Newsroom dates and original links remain visible.
+
+The renderer has one animation scheduler: up to 24 fps for visible ambient motion,
+up to 60 fps for short reactions, and no frames or cursor loop while hidden. The timer
+and animation callback are both cancelled on stop. Reduced motion freezes ambient
+motion and uses fewer updates; the studio preview rests after a short reaction. Petting,
+wave and unlocked emotes draw on the existing canvas and never call an AI service.
+
+Settings writes are queued and debounced. Rust persists the sanitized preferences
+before changing in-memory settings, returning disk errors to the UI. Saving/Saved/Retry
+reflect that result. Controls have accessible labels and narrow layouts use scrollable
+category navigation. Theme changes leave an active settings form in place.
+
+
+### Validation and measured resources
+
+The release executable is v0.6.1, matching the Desktop portable copy by SHA-256.
+96 Rust workspace tests passed, the local Pulse retrieval checks passed, and Clippy
+completed with warnings denied. The opt-in live source check passed for all eight
+sources; the new result includes Anthropic's featured model announcements. Browser
+checks covered category search, labelled controls, provider choices, short pet
+reactions, switching themes without losing the current category, and the minimum
+620-pixel window width without horizontal page overflow. No paid agent chat turn
+was sent; the native agent approval flow was not exercised end to end.
+
+The freshly started release, with the pet confirmed hidden and the shared hub closed,
+measured **64.1 MB private working set** across five processes, with **0.002% average
+CPU** over **45.3 seconds** on 20 logical cores. Windows GPU-engine counters reported
+**0%** in three samples, with whole-percent precision. This does not measure the GPU
+cost of a visible reaction or an open hub. Visible animations and the on-demand hub
+use more resources; cached browser memory may vary after use.

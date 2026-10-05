@@ -129,14 +129,18 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             crate::pulse::pulse_open,
+            crate::pulse::pulse_open_page,
             crate::pulse::pulse_view,
             crate::pulse::pulse_refresh,
             crate::pulse::pulse_preferences,
+            crate::pulse::pulse_theme,
             crate::pulse::pulse_open_source,
             commands::pet_ready,
             commands::set_hit_regions,
             commands::answer_permission,
             commands::chat_open,
+            commands::chat_select_agent,
+            commands::companion_status,
             commands::chat_close,
             commands::chat_send,
             commands::chat_cancel,

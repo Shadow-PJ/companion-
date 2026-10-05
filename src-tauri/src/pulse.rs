@@ -112,6 +112,7 @@ pub struct Cache {
     pub last_checked: String,
     pub changes: Vec<Article>,
     pub last_attempt: i64,
+    pub source_revision: u32,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -235,6 +236,9 @@ fn publish(app: &AppHandle) {
 }
 
 #[tauri::command]
+pub fn pulse_theme(app: AppHandle) -> String { lock(&app.state::<Pulse>().preferences).theme.clone() }
+
+#[tauri::command]
 pub fn pulse_preferences(app: AppHandle, patch: serde_json::Value) -> Result<Preferences, String> {
     let p = app.state::<Pulse>();
     // Merge under the same lock so the pet's settings cannot erase hub bookmarks.
@@ -247,6 +251,7 @@ pub fn pulse_preferences(app: AppHandle, patch: serde_json::Value) -> Result<Pre
     drop(current);
     p.wake.notify_one();
     publish(&app);
+    let _ = app.emit_to(crate::pet_window::LABEL, "pulse://theme", &preferences.theme);
     Ok(preferences)
 }
 
@@ -282,30 +287,37 @@ pub fn pulse_open(app: AppHandle) -> Result<(), String> {
     open_window(&app)
 }
 
-pub fn open_window(app: &AppHandle) -> Result<(), String> {
-    if !lock(&app.state::<Pulse>().preferences).enabled {
-        return Err("Enable AI Pulse in Glowby Settings first.".into());
-    }
+#[tauri::command]
+pub fn pulse_open_page(app: AppHandle, page: String) -> Result<(), String> {
+    if !["home", "settings", "preferences"].contains(&page.as_str()) { return Err("Unknown hub page.".into()); }
+    open_window_at(&app, &page)
+}
+
+pub fn open_window(app: &AppHandle) -> Result<(), String> { open_window_at(app, "home") }
+
+pub fn open_window_at(app: &AppHandle, page: &str) -> Result<(), String> {
     if app.state::<AppState>().settings().game_mode && crate::gamemode::fullscreen_app_running() {
-        return Err("AI Pulse will stay closed while a fullscreen app is running.".into());
+        return Err("Glowby's hub will stay closed while a fullscreen app is running.".into());
     }
     if let Some(window) = app.get_webview_window(LABEL) {
+        let _ = window.emit("pulse://navigate", page);
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
         return Ok(());
     }
     let app = app.clone();
+    let page = page.to_string();
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = WebviewWindowBuilder::new(&app, LABEL, WebviewUrl::App("pulse.html".into()))
-            .title("Glowby · AI Pulse")
+        if let Err(e) = WebviewWindowBuilder::new(&app, LABEL, WebviewUrl::App(format!("pulse.html?page={page}").into()))
+            .title("Glowby · Your AI workspace")
             .inner_size(1280.0, 840.0)
             .min_inner_size(620.0, 480.0)
             .center()
             .additional_browser_args(crate::pet_window::BROWSER_ARGS)
             .build()
         {
-            crate::applog::line(format!("AI Pulse window: {e}"));
+            crate::applog::line(format!("Glowby hub window: {e}"));
         }
     });
     Ok(())
@@ -607,9 +619,9 @@ fn parse_feed(text: &str, feed: &Feed) -> Result<Vec<Article>, String> {
 
 fn parse_anthropic(text: &str, feed: &Feed) -> Result<Vec<Article>, String> {
     let doc = Html::parse_document(text);
-    let a = Selector::parse("a[href^='/news/']").unwrap();
+    let a = Selector::parse("a[href^='/']").unwrap();
     let time = Selector::parse("time").unwrap();
-    let title = Selector::parse("[class*='title']").unwrap();
+    let title = Selector::parse("h2, h3, h4, [class*='title'], [class*='Title']").unwrap();
     let mut out = vec![];
     let mut seen = HashSet::new();
     for link in doc.select(&a) {
@@ -617,7 +629,7 @@ fn parse_anthropic(text: &str, feed: &Feed) -> Result<Vec<Article>, String> {
             "https://www.anthropic.com{}",
             link.value().attr("href").unwrap_or("")
         );
-        if !seen.insert(url.clone()) {
+        if seen.contains(&url) {
             continue;
         }
         let Some(raw) = link
@@ -637,6 +649,7 @@ fn parse_anthropic(text: &str, feed: &Feed) -> Result<Vec<Article>, String> {
             .unwrap_or_default();
         let published = format!("{day}T00:00:00Z");
         if let Some(news) = article(feed, plain(&heading, 22), url, published, String::new()) {
+            seen.insert(news.url.clone());
             out.push(news);
         }
         if out.len() >= 30 {
@@ -903,6 +916,7 @@ async fn refresh(app: &AppHandle, manual: bool) -> Result<(), String> {
                 ordinary <= 300
             }
         });
+        if updates.sources.iter().any(|source| source.name == "Anthropic News" && source.ok) { cache.source_revision = 1; }
         cache.sources = updates.sources;
         if cache.sources.iter().any(|s| s.ok) {
             cache.last_checked = Utc::now().to_rfc3339();
@@ -1072,6 +1086,7 @@ mod tests {
             c.articles = updates.news;
             c.benchmarks = updates.benchmarks.unwrap();
             c.sources = updates.sources;
+            c.source_revision = 1;
             c.last_checked = Utc::now().to_rfc3339();
             settings::save_json(std::path::Path::new(&path), &c).unwrap();
         }

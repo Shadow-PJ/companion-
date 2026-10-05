@@ -66,6 +66,7 @@ pub struct AttachmentView {
 #[serde(rename_all = "camelCase")]
 pub struct ChatView {
     pub agent: &'static str,
+    pub agent_mode: String,
     pub enabled: bool,
     pub busy: bool,
     pub reply: String,
@@ -174,6 +175,7 @@ pub fn view(state: &AppState, settings: &Settings) -> ChatView {
     let same_agent = chat.running_agent.is_empty() || chat.running_agent == agent;
     ChatView {
         agent,
+        agent_mode: settings.chat.agent.clone(),
         enabled: settings.chat.enabled,
         busy: chat.busy,
         reply: if same_agent { chat.reply.clone() } else { String::new() },
