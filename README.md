@@ -2,7 +2,7 @@
 
 **Made by [Shadow-PJ](https://github.com/Shadow-PJ).**
 
-[![Latest release](https://img.shields.io/github/v/release/Shadow-PJ/glowby?label=download)](https://github.com/Shadow-PJ/glowby/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/Shadow-PJ/glowby?label=download&cacheSeconds=300)](https://github.com/Shadow-PJ/glowby/releases/latest)
 [![CI](https://github.com/Shadow-PJ/glowby/actions/workflows/ci.yml/badge.svg)](https://github.com/Shadow-PJ/glowby/actions/workflows/ci.yml)
 ![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
