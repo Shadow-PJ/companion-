@@ -53,7 +53,9 @@ jobs:
             2. Put it anywhere, for example on your Desktop, and double-click it.
             3. If Windows says *"Windows protected your PC"*, click **More info → Run anyway**.
                (Glowby isn't code-signed, so Windows doesn't know it yet.)
-            4. Glowby opens its Settings: click **Install hooks… → Apply** to connect it to Claude Code.
+            4. Glowby opens its Settings hub: choose **Connect Claude Code + Codex…**,
+               review the exact changes, then choose **Apply both connections**. Backups are saved first.
+            5. Restart your agent sessions. In Codex, use **`/hooks`** to review and trust Glowby's hooks.
 
-            Needs Windows 10/11 (64-bit), the WebView2 runtime (already on Windows 11) and Claude Code.
+            Needs Windows 10/11 (64-bit), the WebView2 runtime (already on Windows 11) and Claude Code or Codex, installed and signed in.
             `SHA256.txt` lets you check the download wasn't changed.

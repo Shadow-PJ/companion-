@@ -19,7 +19,7 @@ average CPU in a 45-second hidden sample, including WebView2 helpers, with the h
 data stays on your PC. Chat uses your agent account; AI Pulse reads public
 news sources when you open it or opt into background checks.
 
-> **Early version (v0.6.1, local development build).** Glowby is new and improving every week, so expect rough edges.
+> **Early version (v0.6.1).** Glowby is new and improving every week, so expect rough edges.
 > Ideas and bug reports are very welcome: [open an issue](https://github.com/Shadow-PJ/glowby/issues).
 
 ## A calmer workspace in v0.6.1
@@ -164,39 +164,39 @@ while a fullscreen game runs.
 Open **AI Pulse** from the pet's right-click menu, the tray, or Settings.
 
 * A clean Home with five selected updates, a tool to explore, model movement and a
-+  measured leaderboard. Light, dark and system themes; responsive navigation.
+  measured leaderboard. Light, dark and system themes; responsive navigation.
 * News and a release timeline from OpenAI, Anthropic, Google, Meta, Hugging Face and
-+  the official Codex / Claude Code repositories. Preview CLI builds are labelled.
+  the official Codex / Claude Code repositories. Preview CLI builds are labelled.
 * **Explore AI:** 19 tools across coding, image, video, audio, study, research, data,
-+  writing, agents and presentations. Each has use cases, price/access notes and alternatives.
+  writing, agents and presentations. Each has use cases, price/access notes and alternatives.
 * Model comparisons with dated provider specifications, an API request calculator,
-+  and Artificial Analysis's measured Intelligence Index, speed and task cost.
-+  Benchmark task cost is different from API token pricing. There is no universal winner.
+  and Artificial Analysis's measured Intelligence Index, speed and task cost.
+  Benchmark task cost is different from API token pricing. There is no universal winner.
 * **Ask anything about AI:** searches the local news cache, model reference and tool
-+  directory, with source links. It does not call an AI model or spend your usage.
-+  Try “What happened with OpenAI this week?” or “Free AI for making videos”.
+  directory, with source links. It does not call an AI model or spend your usage.
+  Try “What happened with OpenAI this week?” or “Free AI for making videos”.
 * Local bookmarks, company/model/topic follows, watchlist updates, **Ctrl/Cmd K** for
-+  the command palette and **Alt 1–7** to navigate.
+  the command palette and **Alt 1–7** to navigate.
 
 Opening the hub refreshes old public data. Background checks are **off by default**;
-+enable them in AI Pulse → Preferences for watchlist and daily briefing notices.
-+The default interval is six hours (adjustable from 1 to 24 hours). Game mode defers
-+background requests and pet notices. Closing the hub releases its webview.
+enable them in AI Pulse → Preferences for watchlist and daily briefing notices.
+The default interval is six hours (adjustable from 1 to 24 hours). Game mode defers
+background requests and pet notices. Closing the hub releases its webview.
 
 Every item shows its date and original source. Failed sources keep their last data
-+and display an error. Model/tool API prices are a **dated reference shipped with the
-+app**; public benchmark measurements refresh independently. Free access may have
-+credits, limits or hardware costs; check the linked provider before spending money.
+and display an error. Model/tool API prices are a **dated reference shipped with the
+app**; public benchmark measurements refresh independently. Free access may have
+credits, limits or hardware costs; check the linked provider before spending money.
 
 ### Connecting both agents
 
 Use **Connect Claude Code + Codex** in Settings, review both diffs, and apply.
-+Restart agent sessions. In Codex, use **`/hooks`** to review and trust the installed
-+hooks. Glowby does not bypass that trust. A local file-change watcher keeps limits
-+and basic activity current even when a desktop session does not emit hooks.
-+Claude percentages require Claude Code's status-line data; if unavailable, Glowby
-+shows a token count or a reported limit/reset instead of inventing a percentage.
-+Pace forecasts are rough and become stale when you stop working.
+Restart agent sessions. In Codex, use **`/hooks`** to review and trust the installed
+hooks. Glowby does not bypass that trust. A local file-change watcher keeps limits
+and basic activity current even when a desktop session does not emit hooks.
+Claude percentages require Claude Code's status-line data; if unavailable, Glowby
+shows a token count or a reported limit/reset instead of inventing a percentage.
+Pace forecasts are rough and become stale when you stop working.
 
 ## Privacy and safety
 
@@ -262,7 +262,7 @@ npm run release        # builds target\release\glowby.exe (the hook program is b
 * `.\scripts\measure.ps1 -Seconds 60`: measure RAM and CPU.
 
 **Publishing a new version:** bump the version in `Cargo.toml`, `package.json` and
-`src-tauri/tauri.conf.json`, then push a tag (`git tag v0.6.0` → `git push origin v0.6.0`).
+`src-tauri/tauri.conf.json`, then push a tag (`git tag v0.6.1` → `git push origin v0.6.1`).
 GitHub Actions builds `Glowby.exe` and publishes the release.
 
 ```
