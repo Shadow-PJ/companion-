@@ -7,6 +7,11 @@ description = "Glowby, a desktop companion for Claude Code"
 authors = ["Shadow-PJ"]
 repository = "https://github.com/Shadow-PJ/glowby"
 
+[features]
+# Plain Cargo builds must bundle the UI too. Tauri dev disables this default.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

@@ -804,12 +804,40 @@ Reading and displaying these replies makes no AI calls or public-source requests
 
 ### Build and runtime evidence (October 8)
 
-The TypeScript/Vite build and final Windows release compilation passed. After launch,
+The TypeScript/Vite build and Rust release compilation passed. After launch,
 the watcher registered two folders, restored a public Codex answer and observed live
 tool activity from this desktop conversation. No new agent turn or test suite was run;
-a fresh Claude Code turn and the native reply UI were not exercised end to end.
+a fresh Claude Code turn and the native reply UI were not exercised end to end. The
+initial backend checks did not establish that the packaged interface loaded correctly.
 
 With the pet confirmed hidden and the hub closed, the app and its four WebView2 helpers
 used **64.4 MB private working set** and **0.01% average CPU** over **30 seconds** on
-20 logical cores. This sample tracked an active Codex conversation, rather than a fully
-idle agent. Visible animations and opening the hub use additional resources.
+20 logical cores. The user's subsequent screenshot showed that this executable was
+loading a stopped development server, so that sample is not a valid measurement of
+the loaded pet interface. It is retained here only as diagnostic history.
+
+### Bundled interface correction
+
+The last direct Cargo build had replaced the Tauri CLI's packaged executable with a
+build lacking `tauri/custom-protocol`. Its webview therefore tried the configured
+Vite URL (`127.0.0.1:1420`) and showed a connection-refused page. A successful Rust
+compilation and a working log watcher do not prove that the interface is usable.
+
+The app now declares `custom-protocol` as a default Cargo feature, forwarding it to
+Tauri. Normal Cargo builds therefore embed the existing web assets. Use
+`npm run release` to regenerate those assets and package the hook before compiling.
+Tauri's development command removes this default when starting Vite, preserving
+live development. See the [Tauri CLI build-mode implementation](https://github.com/tauri-apps/tauri/blob/dev/crates/tauri-cli/src/interface/rust.rs#L375).
+
+The corrected `npm run release` completed successfully. Its Cargo fingerprint includes
+`custom-protocol` and `default`, and Tauri's build output no longer enables the `dev`
+configuration. Port 1420 had no listener when the new app started. The local log then
+recorded actual pet-page pointer events and a chat textarea receiving keyboard focus,
+confirming that the frontend and its command bridge loaded. No window was brought
+over the running game for a screenshot, and no agent message was sent for this check.
+
+The replacement sample measured **86.2 MB private working set** across Glowby and
+five WebView2 helpers, with **0.01% average CPU** over **30 seconds** on 20 logical
+cores. The pet was hidden after chat interaction, a game was open and Codex log activity
+continued. Memory is slightly above the original approximate 80 MB target; this is a
+measurement of the bundled interface, unlike the earlier connection-error page sample.
