@@ -176,6 +176,15 @@ fn on_event(app: &AppHandle, envelope: &HookEnvelope) {
     }
     let settings = state.settings();
     let project = crate::sessions::project_name(crate::sessions::str_field(&envelope.payload, "cwd").unwrap_or(""));
+    if settings.chat.show_replies && !envelope.from_pet_chat && envelope.event == "Stop"
+        && let Some(text) = crate::sessions::str_field(&envelope.payload, "last_assistant_message")
+            .filter(|text| !text.contains("\n…[trimmed]…\n"))
+    {
+        lock(&state.tracker).record_reply(crate::sessions::agent_of(&envelope.payload),
+            crate::sessions::str_field(&envelope.payload, "session_id").unwrap_or(""),
+            crate::sessions::str_field(&envelope.payload, "cwd").unwrap_or(""), text,
+            chrono::Utc::now().timestamp_millis());
+    }
     let mut pop_out = false;
     // Tests / builds: sick while failing, happy again when they pass.
     if matches!(envelope.event.as_str(), "PostToolUse" | "PostToolUseFailure")

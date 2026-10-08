@@ -66,6 +66,7 @@ pub struct AttachmentView {
 #[serde(rename_all = "camelCase")]
 pub struct ChatView {
     pub agent: &'static str,
+    pub reply_agent: Option<&'static str>,
     pub agent_mode: String,
     pub enabled: bool,
     pub busy: bool,
@@ -137,15 +138,25 @@ fn attachment_context(attachments: &[PathBuf], project_dir: &str) -> (String, Ve
 pub fn effective_dir(state: &AppState, settings: &Settings) -> (String, &'static str) {
     let chosen = settings.chat.project_dir.trim();
     if !chosen.is_empty() && Path::new(chosen).is_dir() {
-        return (chosen.to_string(), "chosen");
+        return (project_dir(chosen), "chosen");
     }
     if let Some(dir) = lock(&state.tracker).latest_project_dir().filter(|d| Path::new(d).is_dir()) {
-        return (dir, "recent");
+        return (project_dir(&dir), "recent");
     }
     match lock(&state.projects).remembered_dir(|d| Path::new(d).is_dir()) {
-        Some(dir) => (dir, "recent"),
+        Some(dir) => (project_dir(&dir), "recent"),
         None => (String::new(), "none"),
     }
+}
+
+/// A selected .git directory is repository metadata, not the chat workspace.
+pub fn project_dir(dir: &str) -> String {
+    let path = Path::new(dir.trim_end_matches(['/', '\\']));
+    if path.file_name().is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(".git")) {
+        return path.parent().filter(|parent| parent.is_dir())
+            .map(|parent| parent.to_string_lossy().into_owned()).unwrap_or_else(|| dir.into());
+    }
+    dir.into()
 }
 
 pub fn effective_agent(state: &AppState, settings: &Settings, target: Option<&str>) -> &'static str {
@@ -172,16 +183,16 @@ pub fn view(state: &AppState, settings: &Settings) -> ChatView {
     };
     let chat = lock(&state.chat);
     let agent = if chat.busy { if chat.running_agent == "codex" { "codex" } else { "claude" } } else { active };
-    let same_agent = chat.running_agent.is_empty() || chat.running_agent == agent;
     ChatView {
         agent,
+        reply_agent: (!chat.running_agent.is_empty()).then_some(if chat.running_agent == "codex" { "codex" } else { "claude" }),
         agent_mode: settings.chat.agent.clone(),
         enabled: settings.chat.enabled,
         busy: chat.busy,
-        reply: if same_agent { chat.reply.clone() } else { String::new() },
+        reply: chat.reply.clone(),
         activity: chat.activity.clone(),
-        error: if same_agent { chat.error.clone() } else { None },
-        title: if same_agent { chat.title.clone() } else { String::new() },
+        error: chat.error.clone(),
+        title: chat.title.clone(),
         attachments: chat
             .attachments
             .iter()
@@ -318,6 +329,7 @@ async fn send_inner(app: &AppHandle, request: ChatRequest) -> Result<(), String>
         (None, Some(d)) => d,
         (None, None) => effective_dir(&state, &settings).0,
     };
+    let dir = project_dir(&dir);
     if dir.is_empty() {
         return Err("Choose a project folder first (click the folder chip).".into());
     }

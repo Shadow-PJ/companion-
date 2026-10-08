@@ -772,3 +772,44 @@ CPU** over **45.3 seconds** on 20 logical cores. Windows GPU-engine counters rep
 **0%** in three samples, with whole-percent precision. This does not measure the GPU
 cost of a visible reaction or an open hub. Visible animations and the on-demand hub
 use more resources; cached browser memory may vary after use.
+
+## Agent activity and reply fixes
+
+The local log watcher used to update moods and usage without delivering the actual
+answer. It now extracts completed public assistant messages from Claude Code and
+Codex logs. Thinking/reasoning blocks are excluded. Only the newest answer per agent
+is kept in memory, capped at 20,000 characters; it is not written to Glowby's files.
+Settings → Chat → Show replies from my agents controls storage and display. These
+are local Code/CLI transcripts, not a reader for ordinary Claude web chats.
+
+Newer Codex desktop logs include message phases and item events. The parser accepts
+those alongside the older events and ignores token updates as activity. Claude tool
+results remain tool activity, rather than looking like a new user prompt. Unknown
+or incomplete JSONL records are skipped. Hook replies clipped by the pipe size limit
+are left to the transcript reader so a shortened hook cannot hide the longer answer.
+
+One bounded startup scan restores recently modified logs, including old Codex date
+folders resumed today. Subsequent updates use file notifications, a 400 ms debounce
+and reads of at most 512 KB per changed file; there is no recurring directory scan.
+Session metadata can come from the file head or tail. Actual event timestamps keep
+the active-agent choice from depending on the order of startup reads. CODEX_HOME
+and CLAUDE_CONFIG_DIR extend the watched folders, and Claude usage uses the same roots.
+Recent hooks still take priority over log activity.
+
+The pet's expandable reply shows its agent, project and date. It reuses its text node
+across status updates. Pet-chat answers keep their own provider label when Auto
+switches agents, and unchanged replies no longer force scrolling to the bottom.
+Choosing a .git directory now uses the containing repository for chat and quick actions.
+Reading and displaying these replies makes no AI calls or public-source requests.
+
+### Build and runtime evidence (October 8)
+
+The TypeScript/Vite build and final Windows release compilation passed. After launch,
+the watcher registered two folders, restored a public Codex answer and observed live
+tool activity from this desktop conversation. No new agent turn or test suite was run;
+a fresh Claude Code turn and the native reply UI were not exercised end to end.
+
+With the pet confirmed hidden and the hub closed, the app and its four WebView2 helpers
+used **64.4 MB private working set** and **0.01% average CPU** over **30 seconds** on
+20 logical cores. This sample tracked an active Codex conversation, rather than a fully
+idle agent. Visible animations and opening the hub use additional resources.

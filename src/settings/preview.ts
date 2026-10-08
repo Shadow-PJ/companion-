@@ -6,7 +6,7 @@ import catalog from "../pulse/catalog.json";
 export const desktopSettings = isTauri();
 const defaults: Settings = {
   pet:{monitor:"",character:"",position:.5,statusLine:true,followMouse:true,interactions:true,reducedMotion:false,showOnPermission:true,showOnDone:true,showOnAttention:true},
-  permissions:{enabled:true,timeoutSecs:60},chat:{enabled:true,projectDir:"",mode:"ask",keepConversation:true,agent:"auto",claudePath:""},gameMode:true,
+  permissions:{enabled:true,timeoutSecs:60},chat:{enabled:true,showReplies:true,projectDir:"",mode:"ask",keepConversation:true,agent:"auto",claudePath:""},gameMode:true,
   quickActions:{enabled:true,actions:[{id:"explain-error",label:"Explain the last error",prompt:"Explain {last_error} in {project}.",readOnly:true}]},dropFiles:true,errorWatcher:false,health:true,
   progression:{enabled:true,neglect:true,hat:"",color:"mint",aura:"",pet:"ninja"},breaks:{enabled:true,intervalMins:60},sounds:{enabled:true,volume:40,taskDone:true,needsYou:true,problems:true,levelUp:true,breaks:true},
   briefing:{enabled:true},learn:{enabled:true,everyMins:30},quests:{enabled:true,difficulty:"normal",perDay:3,kinds:["fix","test","tasks"]},github:{enabled:false,everyMins:15},squad:{enabled:false,maxShown:3},

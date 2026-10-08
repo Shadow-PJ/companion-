@@ -229,6 +229,9 @@ pre.detail {
   gap: 6px;
   margin-top: 6px;
 }
+.agent-reply { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 6px; }
+.agent-reply summary { cursor: pointer; font-weight: 600; }
+.agent-reply .reply { max-height: 155px; overflow: auto; margin-top: 5px; white-space: pre-wrap; user-select: text; }
 .btn {
   font: inherit;
   font-size: 12.5px;

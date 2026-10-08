@@ -183,37 +183,38 @@ pub fn tail_of(path: &Path, max: u64) -> String {
 /// (unix seconds, tokens) of every Claude reply in the last 10 hours, from the
 /// usage numbers in your local transcripts (no message text is kept).
 fn claude_usage_points(now: i64) -> Vec<(i64, u64)> {
-    let Some(root) = home().map(|h| h.join(".claude").join("projects")) else { return Vec::new() };
     let since = now - 2 * CLAUDE_BLOCK_SECS;
     let mut points = Vec::new();
     // one reply is written as several lines with the same id: count it once
     let mut seen = std::collections::HashSet::new();
-    let Ok(projects) = std::fs::read_dir(root) else { return points };
-    for dir in projects.flatten() {
-        let Ok(files) = std::fs::read_dir(dir.path()) else { continue };
-        for file in files.flatten() {
-            let path = file.path();
-            let recent = file
-                .metadata()
-                .and_then(|m| m.modified())
-                .is_ok_and(|t| t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64 >= since).unwrap_or(false));
-            if !recent || path.extension().is_none_or(|e| e != "jsonl") {
-                continue;
-            }
-            for line in tail(&path).lines().filter(|l| l.contains("\"usage\"") && l.contains("\"assistant\"")) {
-                let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
-                let Some(at) = v.get("timestamp").and_then(Value::as_str).and_then(|t| DateTime::parse_from_rfc3339(t).ok()) else { continue };
-                if let Some(id) = v.pointer("/message/id").and_then(Value::as_str)
-                    && !seen.insert(id.to_string())
-                {
+    for root in crate::agent_watch::claude_roots() {
+        let Ok(projects) = std::fs::read_dir(root) else { continue };
+        for dir in projects.flatten() {
+            let Ok(files) = std::fs::read_dir(dir.path()) else { continue };
+            for file in files.flatten() {
+                let path = file.path();
+                let recent = file
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .is_ok_and(|t| t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64 >= since).unwrap_or(false));
+                if !recent || path.extension().is_none_or(|e| e != "jsonl") {
                     continue;
                 }
-                let u = v.pointer("/message/usage").cloned().unwrap_or(Value::Null);
-                let n = |k: &str| u.get(k).and_then(Value::as_u64).unwrap_or(0);
-                // cache reads are cheap for limits, so they're left out
-                let tokens = n("input_tokens") + n("output_tokens") + n("cache_creation_input_tokens");
-                if at.timestamp() >= since && tokens > 0 {
-                    points.push((at.timestamp(), tokens));
+                for line in tail(&path).lines().filter(|l| l.contains("\"usage\"") && l.contains("\"assistant\"")) {
+                    let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
+                    let Some(at) = v.get("timestamp").and_then(Value::as_str).and_then(|t| DateTime::parse_from_rfc3339(t).ok()) else { continue };
+                    if let Some(id) = v.pointer("/message/id").and_then(Value::as_str)
+                        && !seen.insert(id.to_string())
+                    {
+                        continue;
+                    }
+                    let u = v.pointer("/message/usage").cloned().unwrap_or(Value::Null);
+                    let n = |k: &str| u.get(k).and_then(Value::as_u64).unwrap_or(0);
+                    // cache reads are cheap for limits, so they're left out
+                    let tokens = n("input_tokens") + n("output_tokens") + n("cache_creation_input_tokens");
+                    if at.timestamp() >= since && tokens > 0 {
+                        points.push((at.timestamp(), tokens));
+                    }
                 }
             }
         }

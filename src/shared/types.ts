@@ -12,6 +12,14 @@ export interface StatusView {
   others: number;
 }
 
+export interface AgentReplyView {
+  sessionId: string;
+  agent: "claude" | "codex";
+  project: string;
+  text: string;
+  asOf: string;
+}
+
 export interface PermView {
   id: number;
   kind: "permission" | "chatGate";
@@ -127,6 +135,7 @@ export interface Attachment {
 
 export interface ChatView {
   agent: "claude" | "codex";
+  replyAgent: "claude" | "codex" | null;
   agentMode: "auto" | "claude" | "codex";
   enabled: boolean;
   busy: boolean;
@@ -178,6 +187,7 @@ export interface PetView {
   toast: Toast | null;
   offer: Offer | null;
   chat: ChatView;
+  agentReply: AgentReplyView | null;
   chatOpen: boolean;
   dropHover: boolean;
   quickActions: ActionView[];
@@ -221,7 +231,7 @@ export interface Settings {
     showOnAttention: boolean;
   };
   permissions: { enabled: boolean; timeoutSecs: number };
-  chat: { enabled: boolean; projectDir: string; mode: ChatMode; keepConversation: boolean; agent: "auto" | "claude" | "codex"; claudePath: string };
+  chat: { enabled: boolean; showReplies: boolean; projectDir: string; mode: ChatMode; keepConversation: boolean; agent: "auto" | "claude" | "codex"; claudePath: string };
   gameMode: boolean;
   quickActions: { enabled: boolean; actions: QuickAction[] };
   dropFiles: boolean;

@@ -349,6 +349,8 @@ pub enum ChatMode {
 #[serde(default, rename_all = "camelCase")]
 pub struct ChatSettings {
     pub enabled: bool,
+    /// Show public agent replies from local Code/CLI logs (never private reasoning).
+    pub show_replies: bool,
     pub project_dir: String,
     pub mode: ChatMode,
     /// Continue one conversation per project folder (vs. a fresh start every message).
@@ -413,6 +415,7 @@ impl Default for ChatSettings {
     fn default() -> Self {
         Self {
             enabled: true,
+            show_replies: true,
             project_dir: String::new(),
             mode: ChatMode::Ask,
             keep_conversation: true,

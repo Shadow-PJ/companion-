@@ -80,6 +80,11 @@ their normal prompt, so they're never blocked.
 * **Live status:** hover the line at the top edge to see what your agent is doing right now
   ("Editing main.rs", "Running npm test"). The line turns blue while it works and
   amber when it needs you.
+* **Read replies:** expand **Claude reply** or **Codex reply** below the pet to read
+  the latest completed answer from that agent's local session logs, with its project
+  and timestamp. Settings → Chat → **Show replies from my agents** controls this.
+  Replies stay in memory, are limited to 20,000 characters and use no extra AI calls.
+  This covers Claude Code and Codex, not ordinary Claude web chats.
 * **Permission questions:** when Claude Code or Codex asks to run something, answer
   **Allow / Deny** on Glowby. No answer in time? The question goes back to them.
 * **Auto-allow:** right-click Glowby → **Auto-allow 15 min / 30 min / 1 hour**, or turn on
@@ -194,6 +199,10 @@ Use **Connect Claude Code + Codex** in Settings, review both diffs, and apply.
 Restart agent sessions. In Codex, use **`/hooks`** to review and trust the installed
 hooks. Glowby does not bypass that trust. A local file-change watcher keeps limits
 and basic activity current even when a desktop session does not emit hooks.
+It restores recently modified sessions when Glowby starts, including older Codex
+sessions resumed today, and supports `CODEX_HOME` and `CLAUDE_CONFIG_DIR` folders.
+Chat answers remain visible when Auto changes providers. Selecting a repository's
+`.git` folder uses its parent project folder for chat.
 Claude percentages require Claude Code's status-line data; if unavailable, Glowby
 shows a token count or a reported limit/reset instead of inventing a percentage.
 Pace forecasts are rough and become stale when you stop working.

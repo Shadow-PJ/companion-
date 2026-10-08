@@ -539,6 +539,7 @@ function chatSection(info: AppInfo) {
     "Chat",
     "Click Glowby to chat with the agent you are using. Auto follows recent Claude Code or Codex activity and uses your existing login. Conversations stay separate for each agent and project. Codex Ask mode is read-only; choose Accept edits to grant project write access.",
     toggle("Chat", null, () => settings.chat.enabled, (v) => (settings.chat.enabled = v)),
+    toggle("Show replies from my agents", "Read the latest public answer from local Claude Code and Codex logs. Replies stay in memory; no AI calls or private reasoning.", () => settings.chat.showReplies, (v) => (settings.chat.showReplies = v)),
     select<"auto" | "claude" | "codex">("Chat agent", "Auto switches with your latest active session.", [["auto", "Auto · follow my active agent"], ["claude", "Claude Code"], ["codex", "Codex"]], () => settings.chat.agent, v => settings.chat.agent = v),
     row("Project folder", "Only use folders you trust.", el("span", { class: "inline grow" }, folder, browse)),
     select<ChatMode>(

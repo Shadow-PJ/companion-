@@ -136,6 +136,7 @@ pub struct Ui {
 pub struct PetView {
     pub mood: Mood,
     pub status: Option<StatusView>,
+    pub agent_reply: Option<crate::sessions::AgentReplyView>,
     pub permission: Option<PermView>,
     pub toast: Option<Toast>,
     pub offer: Option<Offer>,
@@ -302,6 +303,7 @@ fn view_and_deadline(app: &AppHandle) -> (PetView, Option<Instant>) {
     let pet_ok = |id: &str| pets.iter().any(|p| p.id == id);
     let squad = crate::squad::views(app, &live, settings.squad.max_shown as usize, known_character, pet_ok);
     let chat_view = chat::view(&state, &settings);
+    let agent_reply = settings.chat.show_replies.then(|| lock(&state.tracker).latest_reply(chat_view.agent)).flatten();
     let failing = if settings.health { lock(&state.health).latest().cloned() } else { None };
     let wall_now = chrono::Local::now();
     let (progress_view, mut look, emotes, energy_drop) = {
@@ -402,6 +404,7 @@ fn view_and_deadline(app: &AppHandle) -> (PetView, Option<Instant>) {
     let view = PetView {
         mood,
         status,
+        agent_reply,
         permission,
         toast: ui.toast.as_ref().map(|(t, _)| t.clone()),
         offer,

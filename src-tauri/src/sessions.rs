@@ -92,6 +92,7 @@ const SLEEPY_AFTER: Duration = Duration::from_secs(30 * 60);
 pub struct Tracker {
     sessions: HashMap<String, Session>,
     last_any_event: Instant,
+    replies: HashMap<&'static str, AgentReplyView>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -106,9 +107,22 @@ pub struct StatusView {
     pub others: usize,
 }
 
+/// The latest public answer from each agent, held only in memory.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentReplyView {
+    pub session_id: String,
+    pub agent: &'static str,
+    pub project: String,
+    pub text: String,
+    pub as_of: String,
+    #[serde(skip)]
+    pub at: i64,
+}
+
 impl Tracker {
     pub fn new() -> Self {
-        Self { sessions: HashMap::new(), last_any_event: Instant::now() }
+        Self { sessions: HashMap::new(), last_any_event: Instant::now(), replies: HashMap::new() }
     }
 
     /// Feeds one hook event in. Returns a reason to pop out, if any.
@@ -284,12 +298,41 @@ impl Tracker {
 
     pub fn session_agent(&self, id: &str) -> Option<&'static str> { self.sessions.get(id).map(|s| s.agent) }
 
+    pub fn is_pet_session(&self, id: &str) -> bool {
+        self.sessions.get(id).is_some_and(|s| s.from_pet_chat)
+    }
+
+    pub fn record_reply(&mut self, agent: &'static str, id: &str, cwd: &str, text: &str, at: i64) -> bool {
+        let text = shorten(text.trim(), 20_000);
+        if text.is_empty() || self.replies.get(agent).is_some_and(|r| r.at > at || (r.session_id == id && r.text == text)) {
+            return false;
+        }
+        let as_of = chrono::DateTime::from_timestamp_millis(at)
+            .map(|t| t.with_timezone(&chrono::Local).format("%b %d · %H:%M").to_string())
+            .unwrap_or_default();
+        self.replies.insert(agent, AgentReplyView { session_id: id.into(), agent, project: project_name(cwd), text, as_of, at });
+        true
+    }
+
+    pub fn latest_reply(&self, agent: &str) -> Option<AgentReplyView> {
+        self.replies.get(agent).cloned()
+    }
+
     /// Log activity is a fallback only; recent hooks are authoritative.
     pub fn apply_log(&mut self, event: &str, payload: &Value) {
         let id = str_field(payload, "session_id").unwrap_or("");
         if self.sessions.get(id).and_then(|s| s.last_hook).is_some_and(|t| t.elapsed() < Duration::from_secs(15)) { return; }
         self.apply(event, payload, false);
-        if let Some(s) = self.sessions.get_mut(id) { s.last_hook = None; }
+        if let Some(s) = self.sessions.get_mut(id) {
+            s.last_hook = None;
+            if let Some(at) = payload.get("_glowby_observed_at").and_then(Value::as_i64) {
+                let age = chrono::Utc::now().timestamp_millis().saturating_sub(at).max(0) as u64;
+                if let Some(observed) = Instant::now().checked_sub(Duration::from_millis(age)) {
+                    s.last_event = observed;
+                    s.phase_since = observed;
+                }
+            }
+        }
     }
 
     pub fn tools_this_turn(&self, session_id: &str) -> u32 {

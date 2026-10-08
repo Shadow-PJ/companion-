@@ -40,6 +40,9 @@ export class Bubble {
   /** The squad pet whose card is open, if any. */
   squadSelected: string | null = null;
   private view: PetView | null = null;
+  private replyKey = "";
+  private replyOpen = false;
+  private replyDetails: HTMLDetailsElement | null = null;
   private menuOpen = false;
   /** The AI limits card is open (right-click → AI limits). */
   private limitsOpen = false;
@@ -502,9 +505,13 @@ export class Bubble {
         ? `${c.projectPath}\nClick to choose another folder`
         : "Choose the project folder";
     this.chatNewBtn.hidden = !c.hasConversation || c.busy;
-    this.chatTitle.textContent = c.title ? `You asked: ${c.title}` : "";
+    const replyAgent = c.replyAgent === "codex" ? "Codex" : "Claude";
+    this.chatTitle.textContent = c.title ? `${c.replyAgent ? `${replyAgent} · ` : ""}You asked: ${c.title}` : "";
     this.chatTitle.hidden = !c.title;
-    this.chatReply.textContent = c.reply || (c.busy ? "…" : "");
+    const replyText = c.reply || (c.busy ? "…" : "");
+    const followReply = this.chatReply.scrollHeight - this.chatReply.clientHeight - this.chatReply.scrollTop < 32;
+    const replyChanged = this.chatReply.textContent !== replyText;
+    if (replyChanged) this.chatReply.textContent = replyText;
     this.chatReply.hidden = !c.reply && !c.busy;
     this.chatActivity.hidden = !c.busy;
     this.chatActivityText.textContent = c.activity || "Working…";
@@ -544,7 +551,7 @@ export class Bubble {
     this.chatNotice.replaceChildren(...notice);
     this.chatNotice.hidden = notice.length === 0;
     this.chatForm.hidden = !c.enabled;
-    this.chatReply.scrollTop = this.chatReply.scrollHeight;
+    if (replyChanged && followReply) this.chatReply.scrollTop = this.chatReply.scrollHeight;
   }
 
   /** Native folder picker, right from the bubble. */
@@ -830,6 +837,34 @@ export class Bubble {
         hints.length ? el("div", { class: "muted small", text: hints.join(" · ") }) : null,
       ];
     }
+    // Answers from the user's Code/desktop sessions are separate from pet chat.
+    // Native details keeps reading selectable text free of extra windows or timers.
+    const reply = v.agentReply;
+    if (reply) {
+      key += `|reply:${reply.agent}:${reply.sessionId}:${reply.asOf}:${reply.text}`;
+      const replyKey = `${reply.agent}:${reply.sessionId}:${reply.asOf}:${reply.text}`;
+      if (replyKey !== this.replyKey || !this.replyDetails) {
+        this.replyKey = replyKey;
+        this.replyOpen = v.status?.phase === "done" || v.toast?.kind === "done";
+        const label = `${reply.agent === "codex" ? "Codex" : "Claude"} reply${reply.project ? ` · ${reply.project}` : ""}`;
+        const details = el("details", { class: "agent-reply" },
+          el("summary", { text: label }),
+          el("div", { class: "muted small", text: reply.asOf }),
+          el("div", { class: "reply", text: reply.text }));
+        details.addEventListener("toggle", () => {
+          if (!details.isConnected) return;
+          this.replyOpen = details.open;
+          this.onLayout();
+        });
+        this.replyDetails = details;
+      }
+      const details = this.replyDetails;
+      details.open = this.replyOpen;
+      content.push(details);
+    } else {
+      this.replyDetails = null;
+      this.replyKey = "";
+    }
     // Auto-allow, quietly: one line with a Stop button (timed) under the status.
     const a = v.autoAllow;
     if (a && !v.toast) {
@@ -878,7 +913,10 @@ export class Bubble {
       ...content.filter((c): c is Node | string => c !== null),
       ...(p ? [progressLine(p, v.quests.length ? `Quests ${questsDone}/${v.quests.length}` : "")] : []),
     );
-    this.noteBox.onclick = v.toast ? () => void invoke("dismiss_toast") : null;
+    this.noteBox.onclick = v.toast ? (event) => {
+      if (event.target instanceof Element && event.target.closest("details,.btn")) return;
+      void invoke("dismiss_toast");
+    } : null;
   }
 }
 
