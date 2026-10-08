@@ -73,6 +73,21 @@ The activity hooks run in the background. Only the permission hook waits for you
 on Glowby, and if Glowby is closed (or doesn't answer in time) Claude Code and Codex show
 their normal prompt, so they're never blocked.
 
+### Chat login and retry
+
+Hook connections and agent account login are separate. If Ask Claude reports an
+expired login, click **Sign in to Claude** in the chat, finish the browser login,
+then click **Check Claude login**. You can also run `claude auth login` in your
+terminal. Glowby checks the exact Claude executable selected in Settings → Chat;
+another Claude app may use a different login. The check makes no AI request.
+
+Your full question stays above the reply. **Edit & retry** puts it back in the
+input for review; sending again uses the selected agent's quota. Failed requests
+restore their files and draft. Recent external replies also show their original
+question when the local transcript contains it. These previews stay in memory
+and disappear when Glowby exits. Choose your actual project folder for chat,
+rather than a `.claude/sessions` or `.codex/sessions` history directory.
+
 ## What Glowby does
 
 **Watches Claude Code and Codex for you**

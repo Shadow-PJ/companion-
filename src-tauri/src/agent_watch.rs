@@ -18,6 +18,7 @@ struct Snapshot {
     tool: String,
     command: String,
     reply: Option<(String, i64)>,
+    reply_question: String,
 }
 
 fn roots() -> Vec<Root> {
@@ -53,7 +54,7 @@ fn public_text(value: &Value) -> String {
             for block in blocks {
                 let kind = block.get("type").and_then(Value::as_str).unwrap_or("");
                 let part = if block.is_string() { block.as_str() }
-                    else if matches!(kind, "text" | "output_text") { block.get("text").and_then(Value::as_str) }
+                    else if matches!(kind, "text" | "output_text" | "input_text") { block.get("text").and_then(Value::as_str) }
                     else { None };
                 if let Some(part) = part {
                     if !text.is_empty() { text.push('\n'); }
@@ -100,6 +101,7 @@ fn snapshot(text: &str, agent: &str) -> Snapshot {
         let mut reply = String::new();
         let mut tool = String::new();
         let mut command = String::new();
+        let mut question = String::new();
         if agent == "codex" {
             let p = v.get("payload").unwrap_or(&v);
             let kind = p.get("type").and_then(Value::as_str).unwrap_or("");
@@ -108,7 +110,14 @@ fn snapshot(text: &str, agent: &str) -> Snapshot {
                     event = Some("Stop");
                     reply = p.get("last_agent_message").map(public_text).unwrap_or_default();
                 }
-                ("event_msg", "task_started" | "user_message") => event = Some("UserPromptSubmit"),
+                ("event_msg", "task_started" | "user_message") => {
+                    event = Some("UserPromptSubmit");
+                    if kind == "user_message" { question = p.get("message").or_else(|| p.get("text")).map(public_text).unwrap_or_default(); }
+                }
+                ("response_item", "message") if p.get("role").and_then(Value::as_str) == Some("user") => {
+                    event = Some("UserPromptSubmit");
+                    question = p.get("content").map(public_text).unwrap_or_default();
+                }
                 ("event_msg", "turn_aborted" | "task_interrupted") => event = Some("Stop"),
                 ("event_msg", "agent_message") => {
                     if p.get("phase").and_then(Value::as_str) == Some("final") || out.event == Some("Stop") {
@@ -129,7 +138,10 @@ fn snapshot(text: &str, agent: &str) -> Snapshot {
                         "AgentMessage" | "agent_message" if item.get("phase").and_then(Value::as_str) == Some("final") => {
                             event = Some("Stop"); reply = item.get("text").or_else(|| item.get("content")).map(public_text).unwrap_or_default();
                         }
-                        "UserMessage" | "user_message" => event = Some("UserPromptSubmit"),
+                        "UserMessage" | "user_message" => {
+                            event = Some("UserPromptSubmit");
+                            question = item.get("text").or_else(|| item.get("content")).map(public_text).unwrap_or_default();
+                        }
                         "CommandExecution" | "command_execution" => {
                             event = Some("PreToolUse"); tool = "Bash".into();
                             command = match item.get("command") {
@@ -154,6 +166,7 @@ fn snapshot(text: &str, agent: &str) -> Snapshot {
                 "user" if v.get("isMeta").and_then(Value::as_bool) != Some(true) && v.get("isCompactSummary").and_then(Value::as_bool) != Some(true) => {
                     let result = v.pointer("/message/content").and_then(Value::as_array).is_some_and(|blocks| blocks.iter().any(|b| b.get("type").and_then(Value::as_str) == Some("tool_result")));
                     event = Some(if result { "PreToolUse" } else { "UserPromptSubmit" });
+                    if !result { question = v.pointer("/message/content").map(public_text).unwrap_or_default(); }
                 }
                 "assistant" => {
                     let content = v.pointer("/message/content").unwrap_or(&Value::Null);
@@ -173,7 +186,12 @@ fn snapshot(text: &str, agent: &str) -> Snapshot {
             out.event = event; out.at = at; out.tool = tool; out.command = command;
         }
         if out.reply.is_none() && !reply.trim().is_empty() { out.reply = Some((reply, at)); }
-        if out.event.is_some() && out.reply.is_some() { break; }
+        // Walk only to the prompt preceding the captured answer. A newer prompt
+        // belongs to the next turn and must never be paired with an older reply.
+        if out.reply.is_some() && !question.trim().is_empty() {
+            out.reply_question = question;
+            break;
+        }
     }
     out
 }
@@ -270,6 +288,7 @@ pub fn spawn(app: &AppHandle) {
                 }
                 if settings.chat.show_replies && let Some((text, at)) = observed.reply && at > 0 {
                     let fresh = lock(&state.tracker).record_reply(agent, &info.id, &info.cwd, &text, at);
+                    lock(&state.tracker).attach_reply_question(agent, &info.id, &text, &observed.reply_question);
                     if fresh {
                         crate::applog::debug(format!("agent reply: {agent}, {} characters (memory only)", text.chars().count()));
                         if at >= started_at && chrono::Utc::now().timestamp_millis() - at < 15_000 && settings.pet.show_on_done {

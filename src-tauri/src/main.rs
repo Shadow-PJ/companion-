@@ -143,6 +143,8 @@ fn main() {
             commands::companion_status,
             commands::chat_close,
             commands::chat_send,
+            commands::chat_claude_sign_in,
+            commands::chat_claude_login_status,
             commands::chat_cancel,
             commands::chat_new,
             commands::set_chat_folder,

@@ -384,6 +384,29 @@ pre.small-pre {
 }
 
 /* chat */
+.chat-question {
+  margin: 4px 0 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.chat-question summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+.question-text {
+  max-height: 72px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin-top: 4px;
+  user-select: text;
+}
+.chat-recovery {
+  flex-wrap: wrap;
+  margin: 6px 0;
+}
 .asked {
   font-size: 12px;
   color: var(--muted);

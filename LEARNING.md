@@ -841,3 +841,41 @@ five WebView2 helpers, with **0.01% average CPU** over **30 seconds** on 20 logi
 cores. The pet was hidden after chat interaction, a game was open and Codex log activity
 continued. Memory is slightly above the original approximate 80 MB target; this is a
 measurement of the bundled interface, unlike the earlier connection-error page sample.
+
+### Chat recovery and visible questions (October 8)
+
+The screenshot's OAuth error came from Claude Code. A local `auth status --json`
+check of the executable Glowby discovers reported `loggedIn: false`, even though
+the user reported being signed in elsewhere. Hook installation does not establish
+CLI login. Glowby now recognizes these authentication errors, removes the duplicate
+error masquerading as a reply, and gives a user-clicked sign-in action. It launches
+the exact CLI in an interactive terminal; credentials and browser login remain
+owned by Claude Code. The executable path is passed as child environment data,
+never inserted into shell code. Login status checks have a 12-second timeout,
+create no model request and never poll. A saved login still does not prove that
+the next model request will succeed.
+
+The old chat title was shortened to 90 characters and clipped to one line. A
+separate memory-only full question now appears in a collapsible, scrollable area.
+Edit & retry restores it without resending automatically. Failed sends restore
+attached files and the input draft; edits typed while waiting are preserved.
+The frontend now awaits and catches the command promise rather than trying to
+catch a detached promise. Reading agent logs also pairs the last public reply
+with its preceding user prompt when available in the existing bounded tail;
+newer prompts are not paired with an older answer. No extra file watcher or
+background timer is introduced. A folder warning identifies common agent-history
+directories without changing the user's selected folder.
+
+The frontend build, `cargo check -p glowby --release`, and packaged
+`npm run release` completed successfully. The replacement app started and its
+log watcher registered both agent folders. The production Cargo fingerprint has
+`custom-protocol` and `default`; port 1420 has no listener. No model turn, test
+suite, or interactive authentication flow was run for this change. Claude's
+installed CLI still reported `loggedIn: false`, so successful authenticated chat
+remains to be confirmed by the user after login.
+
+After WebView2 startup, a 30-second background sample measured **66.6 MB private
+working set** and **0.07% average CPU** across the app and four WebView2 helpers
+on 20 logical cores. Codex log activity continued during the sample. An initial
+sample taken before WebView2 appeared was discarded because it omitted the
+helpers. This is a background sample, not a measurement with chat or Pulse open.

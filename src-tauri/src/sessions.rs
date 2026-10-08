@@ -115,6 +115,7 @@ pub struct AgentReplyView {
     pub agent: &'static str,
     pub project: String,
     pub text: String,
+    pub question: String,
     pub as_of: String,
     #[serde(skip)]
     pub at: i64,
@@ -310,8 +311,17 @@ impl Tracker {
         let as_of = chrono::DateTime::from_timestamp_millis(at)
             .map(|t| t.with_timezone(&chrono::Local).format("%b %d · %H:%M").to_string())
             .unwrap_or_default();
-        self.replies.insert(agent, AgentReplyView { session_id: id.into(), agent, project: project_name(cwd), text, as_of, at });
+        self.replies.insert(agent, AgentReplyView { session_id: id.into(), agent, project: project_name(cwd), text, question: String::new(), as_of, at });
         true
+    }
+
+    pub fn attach_reply_question(&mut self, agent: &str, id: &str, text: &str, question: &str) {
+        if let Some(reply) = self.replies.get_mut(agent)
+            && reply.session_id == id && reply.text == shorten(text.trim(), 20_000)
+            && !question.trim().is_empty()
+        {
+            reply.question = shorten(question.trim(), 8_000);
+        }
     }
 
     pub fn latest_reply(&self, agent: &str) -> Option<AgentReplyView> {

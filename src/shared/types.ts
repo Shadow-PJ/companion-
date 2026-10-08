@@ -17,6 +17,7 @@ export interface AgentReplyView {
   agent: "claude" | "codex";
   project: string;
   text: string;
+  question: string;
   asOf: string;
 }
 
@@ -144,6 +145,8 @@ export interface ChatView {
   error: string | null;
   title: string;
   attachments: Attachment[];
+  question: string;
+  authRequired: boolean;
   project: string;
   projectPath: string;
   /** chosen = from Settings, recent = your latest Claude Code session's folder */

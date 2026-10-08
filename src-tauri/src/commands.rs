@@ -76,6 +76,16 @@ pub async fn chat_send(app: AppHandle, text: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn chat_claude_sign_in(app: AppHandle) -> Result<(), String> {
+    chat::sign_in_claude(&app)
+}
+
+#[tauri::command]
+pub async fn chat_claude_login_status(app: AppHandle) -> Result<bool, String> {
+    chat::check_claude_login(&app).await
+}
+
+#[tauri::command]
 pub fn chat_remove_attachment(app: AppHandle, index: usize) {
     chat::remove_attachment(&app, index);
     state::publish(&app);

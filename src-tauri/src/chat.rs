@@ -34,6 +34,8 @@ pub struct ChatState {
     pub error: Option<String>,
     /// What you asked (or the quick action's name), shown above the reply.
     pub title: String,
+    /// Full last prompt, kept in memory so a failed request can be edited and retried.
+    pub question: String,
     /// Files you dropped on Glowby, sent with the next message.
     pub attachments: Vec<PathBuf>,
     /// The running request may only read: the chat gate blocks file edits.
@@ -75,6 +77,8 @@ pub struct ChatView {
     pub error: Option<String>,
     pub title: String,
     pub attachments: Vec<AttachmentView>,
+    pub question: String,
+    pub auth_required: bool,
     pub project: String,
     pub project_path: String,
     /// "chosen" (from Settings), "recent" (your last Claude Code session) or "none".
@@ -97,6 +101,7 @@ pub fn attach(app: &AppHandle, paths: Vec<PathBuf>) {
     chat.reply.clear();
     chat.error = None;
     chat.title.clear();
+    chat.question.clear();
 }
 
 pub fn remove_attachment(app: &AppHandle, index: usize) {
@@ -193,6 +198,8 @@ pub fn view(state: &AppState, settings: &Settings) -> ChatView {
         activity: chat.activity.clone(),
         error: chat.error.clone(),
         title: chat.title.clone(),
+        question: chat.question.clone(),
+        auth_required: chat.running_agent == "claude" && chat.error.as_deref().is_some_and(is_claude_auth_error),
         attachments: chat
             .attachments
             .iter()
@@ -225,6 +232,7 @@ pub fn set_target(app: &AppHandle, target: Option<crate::squad::ChatTarget>) {
         chat.reply.clear();
         chat.error = None;
         chat.title.clear();
+        chat.question.clear();
     }
     chat.target = target;
 }
@@ -318,6 +326,19 @@ async fn send_inner(app: &AppHandle, request: ChatRequest) -> Result<(), String>
     if !settings.chat.enabled {
         return Err("Chat is turned off in Settings.".into());
     }
+    let requested_target = request.use_target.then(|| lock(&state.chat).target.as_ref().map(|target| target.session_id.clone())).flatten();
+    let requested_agent = effective_agent(&state, &settings, requested_target.as_deref());
+    {
+        let mut chat = lock(&state.chat);
+        if chat.busy {
+            return Err("Still waiting for the last reply.".into());
+        }
+        chat.question = crate::sessions::shorten(request.message.trim(), MAX_REPLY_CHARS);
+        chat.title = crate::sessions::shorten(&request.title, 90);
+        chat.running_agent = requested_agent.into();
+        chat.reply.clear();
+        chat.error = None;
+    }
     let target = if request.use_target {
         lock(&state.chat).target.as_ref().map(|t| (t.session_id.clone(), t.dir.clone()))
     } else {
@@ -410,7 +431,7 @@ async fn send_inner(app: &AppHandle, request: ChatRequest) -> Result<(), String>
         .creation_flags(CREATE_NO_WINDOW);
 
     run_claude(&app, cmd, message, &mut cancel_rx).await
-    };
+    }.map_err(|error| if agent == "claude" { friendly_claude_error(&error) } else { error });
     {
         let mut chat = lock(&state.chat);
         chat.busy = false;
@@ -425,7 +446,18 @@ async fn send_inner(app: &AppHandle, request: ChatRequest) -> Result<(), String>
                 let _ = settings::save_json(&state.paths.chat_sessions_file, &*sessions);
             }
             Ok(_) => {}
-            Err(e) => chat.error = Some(e.clone()),
+            Err(e) => {
+                if agent == "claude" && is_claude_auth_error(e) {
+                    chat.reply.clear();
+                }
+                // Failed sends keep shared files available for the user's next attempt.
+                for path in &attachments {
+                    if !chat.attachments.contains(path) && chat.attachments.len() < 10 {
+                        chat.attachments.push(path.clone());
+                    }
+                }
+                chat.error = Some(e.clone());
+            }
         }
     }
     if let (Ok(Some(copy)), Some((squad_session, _))) = (&outcome, &target)
@@ -489,6 +521,11 @@ async fn run_claude(
                     Some("result") => {
                         is_error = event.get("is_error").and_then(Value::as_bool).unwrap_or(false);
                         final_text = event.get("result").and_then(Value::as_str).map(str::to_string);
+                        if is_error && final_text.as_ref().is_none_or(|text| text.trim().is_empty()) {
+                            final_text = event.get("errors").and_then(Value::as_array).map(|errors| {
+                                errors.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("\n")
+                            }).filter(|text| !text.is_empty());
+                        }
                     }
                     _ => {}
                 }
@@ -506,11 +543,89 @@ async fn run_claude(
         lock(&state.chat).reply = crate::sessions::shorten(&text, MAX_REPLY_CHARS);
         return Ok(session_id);
     }
-    if status.success() {
+    if status.success() && !is_error {
         return Ok(session_id);
     }
     let detail = stderr_text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("unknown error").trim().to_string();
+    if is_claude_auth_error(&stderr_text) {
+        return Err(friendly_claude_error(&stderr_text));
+    }
     Err(format!("Claude Code stopped: {}", crate::sessions::shorten(&detail, 300)))
+}
+
+fn is_claude_auth_error(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    error.contains("claude code sign-in required")
+        || error.contains("failed to authenticate")
+        || error.contains("authentication_error")
+        || error.contains("not logged in")
+        || error.contains("not signed in")
+        || error.contains("please run /login")
+        || (error.contains("oauth") && ["expired", "refresh", "invalid", "revoked"].iter().any(|word| error.contains(word)))
+}
+
+fn friendly_claude_error(error: &str) -> String {
+    if is_claude_auth_error(error) {
+        "Claude Code sign-in required. This CLI's login is missing or expired. Sign in, check the login, then retry your question. Connecting hooks does not sign you in.".into()
+    } else {
+        error.into()
+    }
+}
+
+/// Only the user opens this interactive login; Glowby never reads its credentials.
+pub fn sign_in_claude(app: &AppHandle) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    static LOGIN: std::sync::Mutex<Option<std::process::Child>> = std::sync::Mutex::new(None);
+    let state = app.state::<AppState>();
+    if lock(&state.chat).busy {
+        return Err("Stop the current request before signing in.".into());
+    }
+    if lock(&state.ui).game_active {
+        return Err("Leave fullscreen game mode before opening the sign-in window.".into());
+    }
+    let exe = find_claude(&state.settings().chat.claude_path).ok_or("Couldn't find Claude Code. Check its path in Settings → Chat.")?;
+    let mut login = lock(&LOGIN);
+    if let Some(child) = login.as_mut() && child.try_wait().map_err(|e| e.to_string())?.is_none() {
+        return Err("A Claude sign-in window is already open. Finish or close that window first.".into());
+    }
+    let shell = PathBuf::from(std::env::var_os("SystemRoot").ok_or("Windows folder is unavailable.")?)
+        .join(r"System32\WindowsPowerShell\v1.0\powershell.exe");
+    let child = std::process::Command::new(shell)
+        .args(["-NoLogo", "-NoProfile", "-Command", "& $env:GLOWBY_CLAUDE_LOGIN_EXE auth login --claudeai; Read-Host 'Press Enter to close this sign-in window'"])
+        // The executable path is data, never interpolated into shell code.
+        .env("GLOWBY_CLAUDE_LOGIN_EXE", exe)
+        .env_remove("ANTHROPIC_API_KEY")
+        .current_dir(&state.paths.config_dir)
+        .creation_flags(0x0000_0010) // CREATE_NEW_CONSOLE: intentional, user-clicked login.
+        .spawn().map_err(|e| format!("Couldn't open Claude sign-in: {e}"))?;
+    *login = Some(child);
+    Ok(())
+}
+
+/// One bounded local status check, without a model request or background polling.
+pub async fn check_claude_login(app: &AppHandle) -> Result<bool, String> {
+    let state = app.state::<AppState>();
+    let exe = find_claude(&state.settings().chat.claude_path).ok_or("Couldn't find Claude Code. Check its path in Settings → Chat.")?;
+    let mut command = tokio::process::Command::new(exe);
+    command.args(["auth", "status", "--json"])
+        .env_remove("ANTHROPIC_API_KEY")
+        .current_dir(&state.paths.config_dir)
+        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null())
+        .kill_on_drop(true).creation_flags(CREATE_NO_WINDOW);
+    let output = tokio::time::timeout(std::time::Duration::from_secs(12), command.output())
+        .await.map_err(|_| "Claude login check timed out.".to_string())?
+        .map_err(|e| format!("Couldn't check Claude login: {e}"))?;
+    let value: Value = serde_json::from_slice(&output.stdout).map_err(|_| "Claude Code returned an unrecognized login status. Try claude auth status in your terminal.".to_string())?;
+    let signed_in = value.get("loggedIn").and_then(Value::as_bool).ok_or("Claude Code didn't report whether it is signed in.")?;
+    if signed_in {
+        let mut chat = lock(&state.chat);
+        if !chat.busy && chat.running_agent == "claude" && chat.error.as_deref().is_some_and(is_claude_auth_error) {
+            chat.error = None;
+        }
+        drop(chat);
+        state::publish(app);
+    }
+    Ok(signed_in)
 }
 
 /// Streams text and "using tool X" updates into the chat bubble.
@@ -580,6 +695,7 @@ pub fn new_conversation(app: &AppHandle) {
             chat.reply.clear();
             chat.error = None;
             chat.title.clear();
+            chat.question.clear();
         }
     }
     state::publish(app);

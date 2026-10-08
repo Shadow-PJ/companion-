@@ -76,6 +76,23 @@ export class Bubble {
   private chatProject = button("", "chip", () => void this.pickFolder());
   private chatNewBtn = button("New chat", "ghost", () => void invoke("chat_new"), "Forget this conversation");
   private chatTitle = el("div", { class: "asked" });
+  private chatQuestionText = el("div", { class: "question-text" });
+  private chatQuestion = el("details", { class: "chat-question", open: true }, el("summary", { text: "Your question" }), this.chatQuestionText);
+  private editQuestion = button("Edit & retry", "ghost", () => {
+    const question = this.view?.chat.question;
+    if (question && !this.view?.chat.busy) {
+      this.chatInput.value = question;
+      this.chatInput.focus();
+      this.chatInput.selectionStart = this.chatInput.selectionEnd = this.chatInput.value.length;
+    }
+  }, "Put the full question back in the input. Review it, then press Send.");
+  private signIn = button("Sign in to Claude", "", () => void this.recoverClaude(true));
+  private checkLogin = button("Check Claude login", "ghost", () => void this.recoverClaude(false));
+  private chatRecovery = el("div", { class: "actions chat-recovery" }, this.editQuestion, this.signIn, this.checkLogin);
+  private recoveryMessage = el("div", { class: "notice", role: "status", "aria-live": "polite" });
+  private recovering = false;
+  private loginMissing = false;
+  private submitting = false;
   private chatFiles = el("div", { class: "files" });
   private chatSuggest = el("div", { class: "actions suggest" });
   private chatReply = el("div", { class: "reply" });
@@ -485,9 +502,12 @@ export class Bubble {
       this.chatFiles,
       this.chatSuggest,
       this.chatTitle,
+      this.chatQuestion,
       this.chatReply,
       this.chatActivity,
       this.chatError,
+      this.chatRecovery,
+      this.recoveryMessage,
       this.chatForm,
     );
   }
@@ -506,8 +526,18 @@ export class Bubble {
         : "Choose the project folder";
     this.chatNewBtn.hidden = !c.hasConversation || c.busy;
     const replyAgent = c.replyAgent === "codex" ? "Codex" : "Claude";
-    this.chatTitle.textContent = c.title ? `${c.replyAgent ? `${replyAgent} · ` : ""}You asked: ${c.title}` : "";
+    this.chatTitle.textContent = c.title ? `${c.replyAgent ? `${replyAgent} · ` : ""}${c.question ? "Your request" : `You asked: ${c.title}`}` : "";
     this.chatTitle.hidden = !c.title;
+    if (this.chatQuestionText.textContent !== c.question) {
+      this.chatQuestionText.textContent = c.question;
+      this.chatQuestion.open = true;
+    }
+    this.chatQuestion.hidden = !c.question;
+    this.editQuestion.hidden = !c.question || c.busy;
+    this.signIn.hidden = (!c.authRequired && !(c.agent === "claude" && this.loginMissing)) || c.busy;
+    this.checkLogin.hidden = c.agent !== "claude" || c.busy;
+    this.chatRecovery.hidden = c.busy || (!c.question && c.agent !== "claude");
+    this.recoveryMessage.hidden = !this.recoveryMessage.textContent;
     const replyText = c.reply || (c.busy ? "…" : "");
     const followReply = this.chatReply.scrollHeight - this.chatReply.clientHeight - this.chatReply.scrollTop < 32;
     const replyChanged = this.chatReply.textContent !== replyText;
@@ -544,6 +574,8 @@ export class Bubble {
     let notice: (Node | string)[] = [];
     if (!c.enabled) notice = ["Chat is turned off in Settings."];
     else if (!c.hasProject) notice = ["Start a Claude Code or Codex session once and I'll use its folder, or click “Choose folder”."];
+    else if (/[\\/]\.claude[\\/](sessions|projects)([\\/]|$)|[\\/]\.codex[\\/]sessions([\\/]|$)/i.test(c.projectPath))
+      notice = ["This folder contains agent history. Choose your actual project folder so the agent can work on your code."];
     else if (c.folderSource === "squad" && !c.reply && !c.busy)
       notice = [`Chatting in ${c.squadName}'s project. A separate copy of that agent's conversation keeps the original session undisturbed.`];
     else if (c.folderSource === "recent" && !c.reply && !c.busy && !hasFiles)
@@ -571,20 +603,57 @@ export class Bubble {
   }
 
   private async send() {
+    if (this.submitting || this.view?.chat.busy) return;
     const text = this.chatInput.value.trim();
     if (!text) return;
-    if (await this.sendText(text)) this.chatInput.value = "";
+    // Clear before dispatch so a fast failure cannot erase the restored draft.
+    this.chatInput.value = "";
+    if (!(await this.sendText(text)) && !this.chatInput.value) this.chatInput.value = text;
   }
 
   private async sendText(text: string, _label?: string): Promise<boolean> {
-    if (this.view?.chat.busy) return false;
-    if (!this.view?.chat.hasProject && !(await this.pickFolder())) return false;
+    if (this.submitting || this.view?.chat.busy) return false;
+    this.submitting = true;
     try {
-      void invoke("chat_send", { text });
-    } catch {
-      // The error is part of the next view update and shown in the bubble.
+      if (!this.view?.chat.hasProject && !(await this.pickFolder())) return false;
+      this.recoveryMessage.textContent = "";
+      await invoke("chat_send", { text });
+      return true;
+    } catch (error) {
+      this.chatError.textContent = String(error);
+      this.chatError.hidden = false;
+      if (!this.chatInput.value) this.chatInput.value = text;
+      return false;
+    } finally {
+      this.submitting = false;
     }
-    return true;
+  }
+
+  private async recoverClaude(signIn: boolean) {
+    if (this.recovering) return;
+    this.recovering = true;
+    this.signIn.disabled = this.checkLogin.disabled = true;
+    this.recoveryMessage.hidden = false;
+    this.recoveryMessage.textContent = signIn ? "Opening Claude Code sign-in…" : "Checking this Claude Code login…";
+    try {
+      if (signIn) {
+        await invoke("chat_claude_sign_in");
+        this.recoveryMessage.textContent = "Finish sign-in in the browser, close the sign-in terminal, then click Check Claude login.";
+      } else {
+        const signedIn = await invoke<boolean>("chat_claude_login_status");
+        this.loginMissing = !signedIn;
+        this.signIn.hidden = signedIn;
+        this.recoveryMessage.textContent = signedIn
+          ? "Claude Code reports a saved login. Review your question and press Send to retry. This check uses no AI."
+          : "This Claude Code CLI is not signed in. Use Sign in to Claude, even if another Claude app is already signed in.";
+      }
+    } catch (error) {
+      this.recoveryMessage.textContent = String(error);
+    } finally {
+      this.recovering = false;
+      this.signIn.disabled = this.checkLogin.disabled = false;
+      this.onLayout();
+    }
   }
 
   // ---------- learn mode ----------
@@ -841,8 +910,8 @@ export class Bubble {
     // Native details keeps reading selectable text free of extra windows or timers.
     const reply = v.agentReply;
     if (reply) {
-      key += `|reply:${reply.agent}:${reply.sessionId}:${reply.asOf}:${reply.text}`;
-      const replyKey = `${reply.agent}:${reply.sessionId}:${reply.asOf}:${reply.text}`;
+      key += `|reply:${reply.agent}:${reply.sessionId}:${reply.asOf}:${reply.question}:${reply.text}`;
+      const replyKey = `${reply.agent}:${reply.sessionId}:${reply.asOf}:${reply.question}:${reply.text}`;
       if (replyKey !== this.replyKey || !this.replyDetails) {
         this.replyKey = replyKey;
         this.replyOpen = v.status?.phase === "done" || v.toast?.kind === "done";
@@ -850,6 +919,7 @@ export class Bubble {
         const details = el("details", { class: "agent-reply" },
           el("summary", { text: label }),
           el("div", { class: "muted small", text: reply.asOf }),
+          reply.question ? el("details", { class: "chat-question" }, el("summary", { text: "Your question" }), el("div", { class: "question-text", text: reply.question })) : null,
           el("div", { class: "reply", text: reply.text }));
         details.addEventListener("toggle", () => {
           if (!details.isConnected) return;
